@@ -1,0 +1,24 @@
+services:
+  api:
+    image: python:3.12-slim
+    working_dir: /app
+    volumes:
+      - ./src:/app/src
+      - ./.env:/app/.env
+      - D:/develop/data:/app/data
+    command: >
+      sh -c "pip install fastapi uvicorn requests python-dotenv apscheduler chromadb &&
+             uvicorn src.api:app --host 0.0.0.0 --port 8001"
+    ports:
+      - "8001:8001"
+
+  frontend:
+    image: node:24-slim
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    command: sh -c "npm install --no-bin-links && npm run dev"
+    stdin_open: true
+    tty: true
+    ports:
+      - "5174:5174"
