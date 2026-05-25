@@ -1,23 +1,35 @@
 services:
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: llm_chromadb
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - D:/develop/data/chromadb:/chroma/chroma
+    environment:
+      - ANONYMIZED_TELEMETRY=false
+
   api:
-    image: python:3.12-slim
+    build: .
     working_dir: /app
+    env_file:
+      - .env
     volumes:
       - ./src:/app/src
       - ./.env:/app/.env
       - D:/develop/data:/app/data
-    command: >
-      sh -c "pip install fastapi uvicorn requests python-dotenv apscheduler chromadb &&
-             uvicorn src.api:app --host 0.0.0.0 --port 8001"
     ports:
       - "8001:8001"
+    depends_on:
+      - chromadb
 
   frontend:
     image: node:24-slim
     working_dir: /app
     volumes:
       - ./frontend:/app
-    command: sh -c "npm install --no-bin-links && npm run dev"
+    command: ["sh", "-c", "npm install --no-bin-links && npm run dev"]
     stdin_open: true
     tty: true
     ports:
