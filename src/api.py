@@ -1,6 +1,4 @@
 import os
-import json
-import hashlib
 import requests as req
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,56 +21,56 @@ from contextlib import asynccontextmanager
 
 load_dotenv()
 
-# ── Open WebUI 設定 ───────────────────────────────────────
-OPENWEBUI_URL     = os.getenv("OPENWEBUI_URL",     "http://host.docker.internal:3000")
-OPENWEBUI_API_KEY = os.getenv("OPENWEBUI_API_KEY", "")
-KNOWLEDGE_ID      = os.getenv("OPENWEBUI_KNOWLEDGE_ID", "")  # 作成後に設定
+# ── 設定 ─────────────────────────────────────────────────
+OPENWEBUI_URL      = os.getenv("OPENWEBUI_URL",     "http://host.docker.internal:3000")
+OPENWEBUI_API_KEY  = os.getenv("OPENWEBUI_API_KEY", "")
+KNOWLEDGE_ID       = os.getenv("OPENWEBUI_KNOWLEDGE_ID", "")
+COLLECT_TAGS       = [t.strip() for t in os.getenv("COLLECT_TAGS", "python").split(",") if t.strip()]
 
 scheduler = AsyncIOScheduler()
 
-# ── Open WebUI ナレッジベース更新 ─────────────────────────
-def update_openwebui_knowledge(file_path: str) -> bool:
-    """エクスポートファイルをOpen WebUIのナレッジベースに送信する"""
-    if not OPENWEBUI_API_KEY or not KNOWLEDGE_ID:
-        print("[OpenWebUI] APIキーまたはナレッジIDが未設定のためスキップ")
-        return False
-    try:
-        headers = {"Authorization": f"Bearer {OPENWEBUI_API_KEY}"}
+# ── タグベースの収集 ──────────────────────────────────────
+def collect_by_tags() -> dict:
+    """COLLECT_TAGSのキーワードで全ソースからデータを収集する"""
+    results = {}
+    errors  = {}
 
-        # ファイルをアップロード
-        with open(file_path, "rb") as f:
-            upload_res = req.post(
-                f"{OPENWEBUI_URL}/api/v1/files/",
-                headers=headers,
-                files={"file": ("llm_trainer.txt", f, "text/plain")},
-                timeout=60,
-            )
-        if not upload_res.ok:
-            print(f"[OpenWebUI] ファイルアップロード失敗: {upload_res.text}")
-            return False
+    for tag in COLLECT_TAGS:
+        for name, collector in [
+            ("github",        lambda t=tag: get_trending_repos(language=t)),
+            ("qiita",         lambda t=tag: get_qiita_articles(tag=t)),
+            ("zenn",          lambda t=tag: get_zenn_articles(topic=t)),
+            ("stackoverflow", lambda t=tag: get_stackoverflow_questions(tag=t)),
+            ("devto",         lambda t=tag: get_devto_articles(tag=t)),
+            ("wikipedia",     lambda t=tag: get_wikipedia_articles(topic=t)),
+        ]:
+            try:
+                data  = collector()
+                saved = save_articles(name, data)
+                if name not in results:
+                    results[name] = {"count": 0, "saved": 0}
+                results[name]["count"] += len(data)
+                results[name]["saved"] += saved
+            except Exception as e:
+                errors[f"{name}_{tag}"] = str(e)
 
-        file_id = upload_res.json().get("id")
+    # タグに依存しないソース
+    for name, collector in [
+        ("hackernews", get_hackernews_stories),
+        ("archwiki",   get_archwiki_articles),
+        ("manpages",   get_manpages),
+    ]:
+        try:
+            data  = collector()
+            saved = save_articles(name, data)
+            results[name] = {"count": len(data), "saved": saved}
+        except Exception as e:
+            errors[name] = str(e)
 
-        # ナレッジベースに追加
-        add_res = req.post(
-            f"{OPENWEBUI_URL}/api/v1/knowledge/{KNOWLEDGE_ID}/file/add",
-            headers={**headers, "Content-Type": "application/json"},
-            json={"file_id": file_id},
-            timeout=30,
-        )
-        if add_res.ok:
-            print(f"[OpenWebUI] ナレッジベース更新完了 (file_id: {file_id})")
-            return True
-        else:
-            print(f"[OpenWebUI] ナレッジベース追加失敗: {add_res.text}")
-            return False
-    except Exception as e:
-        print(f"[OpenWebUI] 更新エラー: {e}")
-        return False
+    return {"results": results, "errors": errors}
 
-# ── エクスポート処理 ──────────────────────────────────────
+# ── Open WebUI 更新 ───────────────────────────────────────
 def do_export_all() -> str:
-    """全ソースをテキストファイルにエクスポートしてパスを返す"""
     sources = [
         "github", "qiita", "zenn", "stackoverflow",
         "hackernews", "wikipedia", "devto", "archwiki", "manpages"
@@ -90,41 +88,55 @@ def do_export_all() -> str:
                 lines.append("---")
         except Exception:
             continue
-
     path = "/app/data/export_all.txt"
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
     print(f"[Export] {path} に {len(lines)} 行を書き出しました")
     return path
 
-# ── スケジュール収集 ──────────────────────────────────────
-async def scheduled_collect():
-    print(f"[{datetime.now()}] スケジュール収集開始")
-    collectors = {
-        "github":        get_trending_repos,
-        "qiita":         get_qiita_articles,
-        "zenn":          get_zenn_articles,
-        "stackoverflow": get_stackoverflow_questions,
-        "hackernews":    get_hackernews_stories,
-        "wikipedia":     get_wikipedia_articles,
-        "devto":         get_devto_articles,
-        "archwiki":      get_archwiki_articles,
-        "manpages":      get_manpages,
-    }
-    for name, collector in collectors.items():
-        try:
-            data = collector()
-            saved = save_articles(name, data)
-            print(f"[{datetime.now()}] {name}: {len(data)}件 (保存/更新: {saved}件)")
-        except Exception as e:
-            print(f"[{datetime.now()}] {name} エラー: {e}")
+def update_openwebui_knowledge(file_path: str) -> bool:
+    if not OPENWEBUI_API_KEY or not KNOWLEDGE_ID:
+        print("[OpenWebUI] APIキーまたはナレッジIDが未設定のためスキップ")
+        return False
+    try:
+        headers = {"Authorization": f"Bearer {OPENWEBUI_API_KEY}"}
+        with open(file_path, "rb") as f:
+            upload_res = req.post(
+                f"{OPENWEBUI_URL}/api/v1/files/",
+                headers=headers,
+                files={"file": ("llm_trainer.txt", f, "text/plain")},
+                timeout=60,
+            )
+        if not upload_res.ok:
+            print(f"[OpenWebUI] ファイルアップロード失敗: {upload_res.text}")
+            return False
+        file_id = upload_res.json().get("id")
+        add_res = req.post(
+            f"{OPENWEBUI_URL}/api/v1/knowledge/{KNOWLEDGE_ID}/file/add",
+            headers={**headers, "Content-Type": "application/json"},
+            json={"file_id": file_id},
+            timeout=30,
+        )
+        if add_res.ok:
+            print(f"[OpenWebUI] ナレッジベース更新完了 (file_id: {file_id})")
+            return True
+        else:
+            print(f"[OpenWebUI] ナレッジベース追加失敗: {add_res.text}")
+            return False
+    except Exception as e:
+        print(f"[OpenWebUI] 更新エラー: {e}")
+        return False
 
-    # 収集後に自動エクスポート & Open WebUI 更新
+# ── スケジューラー ────────────────────────────────────────
+async def scheduled_collect():
+    print(f"[{datetime.now()}] スケジュール収集開始 タグ: {COLLECT_TAGS}")
+    collect_by_tags()
     try:
         path = do_export_all()
         update_openwebui_knowledge(path)
     except Exception as e:
         print(f"[Export] エラー: {e}")
+    print(f"[{datetime.now()}] スケジュール収集完了")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -135,7 +147,7 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
     )
     scheduler.start()
-    print("✅ スケジューラー起動完了", flush=True)
+    print(f"✅ スケジューラー起動完了 収集タグ: {COLLECT_TAGS}", flush=True)
     yield
     scheduler.shutdown()
 
@@ -155,20 +167,20 @@ app.add_middleware(
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "tags": COLLECT_TAGS}
 
 @app.get("/api/sources")
 def get_sources():
     return {"sources": [
-        {"id": 1, "name": "GitHub API",    "enabled": True},
-        {"id": 2, "name": "Qiita API",     "enabled": True},
-        {"id": 3, "name": "Zenn RSS",      "enabled": True},
-        {"id": 4, "name": "Stack Overflow","enabled": True},
-        {"id": 5, "name": "HackerNews",    "enabled": True},
-        {"id": 6, "name": "Wikipedia API", "enabled": True},
-        {"id": 7, "name": "Dev.to API",    "enabled": True},
-        {"id": 8, "name": "Arch Wiki",     "enabled": True},
-        {"id": 9, "name": "Man Pages",     "enabled": True},
+        {"id": 1,  "name": "GitHub API",    "enabled": True},
+        {"id": 2,  "name": "Qiita API",     "enabled": True},
+        {"id": 3,  "name": "Zenn RSS",      "enabled": True},
+        {"id": 4,  "name": "Stack Overflow","enabled": True},
+        {"id": 5,  "name": "HackerNews",    "enabled": True},
+        {"id": 6,  "name": "Wikipedia API", "enabled": True},
+        {"id": 7,  "name": "Dev.to API",    "enabled": True},
+        {"id": 8,  "name": "Arch Wiki",     "enabled": True},
+        {"id": 9,  "name": "Man Pages",     "enabled": True},
     ]}
 
 @app.get("/api/stats")
@@ -187,8 +199,13 @@ def search_articles(q: str, source: str = None, n: int = 10):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/tags")
+def get_tags():
+    """現在の収集タグ一覧を返す"""
+    return {"tags": COLLECT_TAGS}
+
 # ════════════════════════════════════════════════════════════
-#  個別収集
+#  個別収集 (単一タグ)
 # ════════════════════════════════════════════════════════════
 
 @app.get("/api/collect/github")
@@ -283,36 +300,15 @@ def collect_manpages(save: bool = True):
 
 @app.post("/api/collect/all")
 def collect_all():
-    """全ソースからデータを収集してDBに保存する"""
-    results = {}
-    errors  = {}
-    collectors = {
-        "github":        lambda: get_trending_repos(),
-        "qiita":         lambda: get_qiita_articles(),
-        "zenn":          lambda: get_zenn_articles(),
-        "stackoverflow": lambda: get_stackoverflow_questions(),
-        "hackernews":    lambda: get_hackernews_stories(),
-        "wikipedia":     lambda: get_wikipedia_articles(),
-        "devto":         lambda: get_devto_articles(),
-        "archwiki":      lambda: get_archwiki_articles(),
-        "manpages":      lambda: get_manpages(),
-    }
-    for name, collector in collectors.items():
-        try:
-            data  = collector()
-            saved = save_articles(name, data)
-            results[name] = {"status": "success", "count": len(data), "saved": saved}
-        except Exception as e:
-            errors[name] = str(e)
-    return {"results": results, "errors": errors}
+    """COLLECT_TAGSのキーワードで全ソースからデータを収集する"""
+    return collect_by_tags()
 
 # ════════════════════════════════════════════════════════════
-#  エクスポート (export/all を export/{source} より先に定義)
+#  エクスポート
 # ════════════════════════════════════════════════════════════
 
 @app.get("/api/export/all")
 def export_all():
-    """全ソースをテキストファイルに書き出してダウンロード"""
     try:
         path = do_export_all()
         return FileResponse(path, filename="llm_trainer_all.txt")
@@ -321,7 +317,6 @@ def export_all():
 
 @app.get("/api/export/{source}")
 def export_source(source: str):
-    """指定ソースのデータをテキストファイルに書き出してダウンロード"""
     try:
         col     = get_collection(source)
         results = col.get(include=["documents", "metadatas"])
@@ -339,7 +334,7 @@ def export_source(source: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ════════════════════════════════════════════════════════════
-#  Open WebUI 手動更新
+#  Open WebUI
 # ════════════════════════════════════════════════════════════
 
 @app.post("/api/openwebui/update")
@@ -351,3 +346,39 @@ def openwebui_update():
         return {"status": "ok" if success else "skipped", "file": path}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# ════════════════════════════════════════════════════════════
+#  キーワード都度収集
+# ════════════════════════════════════════════════════════════
+
+@app.post("/api/collect/keyword")
+def collect_keyword(body: dict):
+    """
+    指定キーワードで全ソースからデータを収集する
+    body: {"keyword": "rust"}
+    """
+    keyword = body.get("keyword", "").strip()
+    if not keyword:
+        raise HTTPException(status_code=400, detail="keyword is required")
+
+    results = {}
+    errors  = {}
+
+    # タグ対応ソース
+    for name, collector in [
+        ("github",        lambda: get_trending_repos(language=keyword)),
+        ("qiita",         lambda: get_qiita_articles(tag=keyword)),
+        ("zenn",          lambda: get_zenn_articles(topic=keyword)),
+        ("stackoverflow", lambda: get_stackoverflow_questions(tag=keyword)),
+        ("devto",         lambda: get_devto_articles(tag=keyword)),
+        ("wikipedia",     lambda: get_wikipedia_articles(topic=keyword)),
+    ]:
+        try:
+            data  = collector()
+            saved = save_articles(name, data)
+            results[name] = {"count": len(data), "saved": saved}
+        except Exception as e:
+            errors[name] = str(e)
+
+    total = sum(v["count"] for v in results.values())
+    return {"keyword": keyword, "total": total, "results": results, "errors": errors}

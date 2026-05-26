@@ -46,6 +46,7 @@ const S = {
     fontSize: 12, fontWeight: 500, cursor: "pointer",
     borderBottom: active ? "2px solid #00ffaa" : "2px solid transparent",
     transition: "all 0.2s", letterSpacing: "0.05em",
+    fontFamily: "'JetBrains Mono', monospace",
   }),
   status: {
     display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#475569",
@@ -112,15 +113,23 @@ const S = {
   btn: (variant) => ({
     padding: "7px 16px", borderRadius: 6, cursor: "pointer", fontSize: 11,
     fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.05em",
-    background: variant === "primary" ? "rgba(0,255,170,0.12)" : "rgba(255,255,255,0.04)",
-    border: `1px solid ${variant === "primary" ? "rgba(0,255,170,0.3)" : "rgba(255,255,255,0.08)"}`,
-    color: variant === "primary" ? "#00ffaa" : "#64748b",
+    background: variant === "primary" ? "rgba(0,255,170,0.12)"
+              : variant === "purple"  ? "rgba(168,85,247,0.12)"
+              : "rgba(255,255,255,0.04)",
+    border: `1px solid ${variant === "primary" ? "rgba(0,255,170,0.3)" : variant === "purple" ? "rgba(168,85,247,0.3)" : "rgba(255,255,255,0.08)"}`,
+    color: variant === "primary" ? "#00ffaa" : variant === "purple" ? "#a855f7" : "#64748b",
     transition: "all 0.2s",
   }),
   input: {
     background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
     borderRadius: 6, color: "#e2e8f0", padding: "6px 12px", fontSize: 12,
     fontFamily: "'JetBrains Mono', monospace", outline: "none",
+  },
+  tag: {
+    display: "inline-flex", alignItems: "center", gap: 5,
+    padding: "3px 10px", borderRadius: 20, fontSize: 11,
+    background: "rgba(0,255,170,0.08)", color: "#00ffaa",
+    border: "1px solid rgba(0,255,170,0.2)", cursor: "default",
   },
 };
 
@@ -152,10 +161,16 @@ export default function App() {
   const [collecting, setCollecting] = useState(false);
   const [searching, setSearching] = useState(false);
 
+  // キーワード収集
+  const [keyword, setKeyword] = useState("");
+  const [keywordCollecting, setKeywordCollecting] = useState(false);
+  const [autoTags, setAutoTags] = useState([]);
+
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
     fetchStats();
     fetchSources();
+    fetchTags();
     return () => clearInterval(t);
   }, []);
 
@@ -179,6 +194,16 @@ export default function App() {
     }
   };
 
+  const fetchTags = async () => {
+    try {
+      const res = await fetch(`${API}/api/tags`);
+      const data = await res.json();
+      setAutoTags(data.tags || []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const collectAll = async () => {
     setCollecting(true);
     const startTime = new Date().toLocaleTimeString("ja-JP");
@@ -191,7 +216,7 @@ export default function App() {
         time: startTime,
         source,
         status: "success",
-        message: `${result.count}件のデータを取得・保存しました`,
+        message: `${result.count}件取得 (${result.saved}件保存)`,
       }));
 
       const errorLogs = Object.entries(data.errors || {}).map(([source, error]) => ({
@@ -202,7 +227,7 @@ export default function App() {
         message: error,
       }));
 
-      setLogs(prev => [...newLogs, ...errorLogs, ...prev].slice(0, 50));
+      setLogs(prev => [...newLogs, ...errorLogs, ...prev].slice(0, 100));
       await fetchStats();
     } catch (e) {
       setLogs(prev => [{
@@ -214,6 +239,40 @@ export default function App() {
       }, ...prev]);
     }
     setCollecting(false);
+  };
+
+  // キーワード都度収集
+  const collectKeyword = async () => {
+    const kw = keyword.trim();
+    if (!kw) return;
+    setKeywordCollecting(true);
+    const startTime = new Date().toLocaleTimeString("ja-JP");
+    try {
+      const res = await fetch(`${API}/api/collect/keyword`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keyword: kw }),
+      });
+      const data = await res.json();
+      setLogs(prev => [{
+        id: Date.now(),
+        time: startTime,
+        source: `🔍 ${kw}`,
+        status: "success",
+        message: `合計 ${data.total}件を取得しました`,
+      }, ...prev].slice(0, 100));
+      setKeyword("");
+      await fetchStats();
+    } catch (e) {
+      setLogs(prev => [{
+        id: Date.now(),
+        time: startTime,
+        source: `🔍 ${kw}`,
+        status: "error",
+        message: e.message,
+      }, ...prev]);
+    }
+    setKeywordCollecting(false);
   };
 
   const handleSearch = async () => {
@@ -238,6 +297,8 @@ export default function App() {
         * { box-sizing: border-box; margin: 0; padding: 0; }
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-thumb { background: rgba(0,255,170,0.2); border-radius: 2px; }
+        button:hover { filter: brightness(1.15); }
+        input:focus { border-color: rgba(0,255,170,0.35) !important; outline: none; }
       `}</style>
       <div style={S.scanline} />
 
@@ -259,6 +320,7 @@ export default function App() {
 
       <main style={S.main}>
 
+        {/* ══ DASHBOARD ══ */}
         {tab === "dashboard" && (
           <>
             <div style={S.grid4}>
@@ -275,6 +337,35 @@ export default function App() {
                   <div style={S.kpiSub}>{k.sub}</div>
                 </div>
               ))}
+            </div>
+
+            {/* キーワード収集 */}
+            <div style={{ ...S.card, marginBottom: 16 }}>
+              <div style={S.cardTitle}><span>▸ キーワード収集</span></div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                <input
+                  style={{ ...S.input, flex: 1 }}
+                  placeholder="気になるキーワードを入力（例: rust, kubernetes, neovim）"
+                  value={keyword}
+                  onChange={e => setKeyword(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && collectKeyword()}
+                />
+                <button style={S.btn("purple")} onClick={collectKeyword} disabled={keywordCollecting || !keyword.trim()}>
+                  {keywordCollecting ? "収集中..." : "▶ 今すぐ収集"}
+                </button>
+              </div>
+              {autoTags.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 10, color: "#475569", marginBottom: 6, letterSpacing: "0.1em" }}>
+                    自動収集タグ (毎日09:00)
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {autoTags.map(tag => (
+                      <span key={tag} style={S.tag}>{tag}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div style={{ marginBottom: 20 }}>
@@ -313,6 +404,7 @@ export default function App() {
           </>
         )}
 
+        {/* ══ SOURCES ══ */}
         {tab === "sources" && (
           <>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -321,10 +413,33 @@ export default function App() {
                 {collecting ? "収集中..." : "▶ 全ソース収集"}
               </button>
             </div>
+
+            {/* キーワード収集 */}
+            <div style={{ ...S.card, marginBottom: 16 }}>
+              <div style={S.cardTitle}><span>▸ キーワード都度収集</span></div>
+              <div style={{ fontSize: 11, color: "#475569", marginBottom: 10 }}>
+                気になるキーワードを入力すると、全ソースからまとめて収集してDBに追加します。
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  style={{ ...S.input, flex: 1 }}
+                  placeholder="例: rust, neovim, kubernetes, tailscale..."
+                  value={keyword}
+                  onChange={e => setKeyword(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && collectKeyword()}
+                />
+                <button style={S.btn("purple")} onClick={collectKeyword} disabled={keywordCollecting || !keyword.trim()}>
+                  {keywordCollecting ? "収集中..." : "▶ 収集"}
+                </button>
+              </div>
+            </div>
+
             {sources.map(src => (
               <div key={src.id} style={S.sourceRow(src.enabled)}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: src.enabled ? "#e2e8f0" : "#475569", marginBottom: 2 }}>{src.name}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: src.enabled ? "#e2e8f0" : "#475569", marginBottom: 2 }}>
+                    {src.name}
+                  </div>
                   <div style={{ display: "flex", gap: 8 }}>
                     <span style={S.badge("0,170,255")}>{src.enabled ? "有効" : "無効"}</span>
                     <span style={{ fontSize: 10, color: "#334155" }}>
@@ -334,9 +449,24 @@ export default function App() {
                 </div>
               </div>
             ))}
+
+            {autoTags.length > 0 && (
+              <div style={{ ...S.card, marginTop: 16 }}>
+                <div style={S.cardTitle}><span>▸ 自動収集タグ (毎日09:00)</span></div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {autoTags.map(tag => (
+                    <span key={tag} style={S.tag}>{tag}</span>
+                  ))}
+                </div>
+                <div style={{ fontSize: 10, color: "#334155", marginTop: 10 }}>
+                  タグの変更は .env の COLLECT_TAGS を編集してコンテナを再起動してください。
+                </div>
+              </div>
+            )}
           </>
         )}
 
+        {/* ══ LOGS ══ */}
         {tab === "logs" && (
           <>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -367,6 +497,7 @@ export default function App() {
           </>
         )}
 
+        {/* ══ DATA ══ */}
         {tab === "data" && (
           <>
             <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
@@ -405,6 +536,7 @@ export default function App() {
           </>
         )}
 
+        {/* ══ SETTINGS ══ */}
         {tab === "settings" && (
           <>
             <div style={{ fontSize: 11, color: "#00ffaa", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 16 }}>▸ 設定</div>
@@ -436,6 +568,17 @@ export default function App() {
                     <span style={{ fontSize: 12, color: "#e2e8f0" }}>{item.value}</span>
                   </div>
                 ))}
+              </div>
+              <div style={S.card}>
+                <div style={{ fontSize: 12, color: "#00ffaa", marginBottom: 16 }}>自動収集タグ</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+                  {autoTags.map(tag => (
+                    <span key={tag} style={S.tag}>{tag}</span>
+                  ))}
+                </div>
+                <div style={{ fontSize: 10, color: "#334155" }}>
+                  変更: .env の COLLECT_TAGS を編集 → docker compose restart api
+                </div>
               </div>
             </div>
           </>
