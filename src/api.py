@@ -1,5 +1,6 @@
 import os
 import json
+import sqlite3
 import requests as req
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -52,6 +53,43 @@ def save_settings(data: dict):
     os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)
     with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+# ── ログ管理 ─────────────────────────────────────────────
+LOG_DB_PATH = "/app/data/logs.db"
+
+def init_log_db():
+    os.makedirs(os.path.dirname(LOG_DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(LOG_DB_PATH)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            time TEXT NOT NULL,
+            source TEXT NOT NULL,
+            status TEXT NOT NULL,
+            message TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def save_log(source: str, status: str, message: str):
+    conn = sqlite3.connect(LOG_DB_PATH)
+    conn.execute(
+        "INSERT INTO logs (time, source, status, message) VALUES (?, ?, ?, ?)",
+        (datetime.now().strftime("%H:%M:%S"), source, status, message)
+    )
+    conn.commit()
+    conn.close()
+
+def get_logs(limit: int = 200) -> list[dict]:
+    conn = sqlite3.connect(LOG_DB_PATH)
+    rows = conn.execute(
+        "SELECT id, time, source, status, message FROM logs ORDER BY id DESC LIMIT ?",
+        (limit,)
+    ).fetchall()
+    conn.close()
+    return [{"id": r[0], "time": r[1], "source": r[2], "status": r[3], "message": r[4]} for r in rows]
 
 # ── タグセット管理 ────────────────────────────────────────
 DEFAULT_TAGSETS = {
@@ -125,6 +163,7 @@ def collect_by_tags() -> dict:
                 results[name]["saved"] += saved
             except Exception as e:
                 errors[f"{name}_{tag}"] = str(e)
+                save_log(name, "error", str(e))
 
     for name, collector in [
         ("hackernews", get_hackernews_stories),
@@ -137,6 +176,11 @@ def collect_by_tags() -> dict:
             results[name] = {"count": len(data), "saved": saved}
         except Exception as e:
             errors[name] = str(e)
+            save_log(name, "error", str(e))
+
+    # 収集結果をログに保存
+    for name, r in results.items():
+        save_log(name, "success", f"{r['count']}件取得 ({r['saved']}件保存)")
 
     return {"results": results, "errors": errors}
 
@@ -225,6 +269,7 @@ async def lifespan(app: FastAPI):
         id="daily_collect",
         replace_existing=True,
     )
+    init_log_db()
     scheduler.start()
     tags = get_active_tags()
     print(f"✅ スケジューラー起動完了 収集タグ: {tags}", flush=True)
@@ -282,6 +327,23 @@ def search_articles(q: str, source: str = None, n: int = 10):
 def get_tags():
     return {"tags": get_active_tags()}
 
+
+
+# ════════════════════════════════════════════════════════════
+# ログ
+# ════════════════════════════════════════════════════════════
+
+@app.get("/api/logs")
+def api_get_logs(limit: int = 200):
+    return {"logs": get_logs(limit)}
+
+@app.delete("/api/logs")
+def api_clear_logs():
+    conn = sqlite3.connect(LOG_DB_PATH)
+    conn.execute("DELETE FROM logs")
+    conn.commit()
+    conn.close()
+    return {"status": "ok"}
 
 # ════════════════════════════════════════════════════════════
 # 設定管理
@@ -516,6 +578,11 @@ def collect_keyword(body: dict):
         errors["serper"] = str(e)
 
     total = sum(v["count"] for v in results.values())
+    try:
+        path = do_export_all()
+        update_openwebui_knowledge(path)
+    except Exception as e:
+        print(f"[OpenWebUI] 更新エラー: {e}")
     return {"keyword": keyword, "total": total, "results": results, "errors": errors}
 
 # ════════════════════════════════════════════════════════════

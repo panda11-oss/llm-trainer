@@ -433,6 +433,7 @@ export default function App() {
     // タグセットAPIから取得を試みる
     fetchTagsets();
     fetchSettings();
+    fetchLogs();
     return () => clearInterval(t);
   }, []);
 
@@ -457,6 +458,14 @@ export default function App() {
       const res = await fetch(`${API}/api/tags`);
       const data = await res.json();
       setAutoTags(data.tags || []);
+    } catch (e) { console.error(e); }
+  };
+
+  const fetchLogs = async () => {
+    try {
+      const res = await fetch(`${API}/api/logs?limit=200`);
+      const data = await res.json();
+      setLogs(data.logs || []);
     } catch (e) { console.error(e); }
   };
 
@@ -734,7 +743,10 @@ export default function App() {
                 <button style={S.btn("primary")} onClick={collectAll} disabled={collecting}>
                   {collecting ? "収集中..." : "▶ 収集実行"}
                 </button>
-                <button style={S.btn("default")} onClick={() => setLogs([])}>クリア</button>
+                <button style={S.btn("default")} onClick={async () => {
+                  await fetch(`${API}/api/logs`, { method: "DELETE" });
+                  setLogs([]);
+                }}>クリア</button>
               </div>
             </div>
             <div style={S.card}>
