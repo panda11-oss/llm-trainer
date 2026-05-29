@@ -845,7 +845,7 @@ export default function App() {
               <div style={S.card}>
                 <div style={{ fontSize: 12, color: "#00ffaa", marginBottom: 16 }}>スケジュール設定</div>
                 {[
-                  { label: "取得時刻", value: collectTime, onChange: (v) => { setCollectTime(v); const [h,m] = v.split(":"); updateSetting("collect_hour", parseInt(h)); updateSetting("collect_minute", parseInt(m)); }, placeholder: "09:00" },
+                  { label: "取得時刻", value: collectTime, onChange: (v) => { setCollectTime(v); const [h,m] = v.split(":"); const hour = parseInt(h); const min = parseInt(m); if (!isNaN(hour) && !isNaN(min) && hour >= 0 && hour <= 23 && min >= 0 && min <= 59) { updateSetting("collect_hour", hour); updateSetting("collect_minute", min); } }, placeholder: "09:00" },
                   { label: "タイムゾーン", value: timezone, onChange: (v) => { setTimezone(v); updateSetting("timezone", v); }, placeholder: "Asia/Tokyo" },
                   { label: "リトライ回数", value: retryCount, onChange: (v) => { setRetryCount(v); updateSetting("retry_count", parseInt(v)); }, placeholder: "3" },
                   { label: "タイムアウト(秒)", value: timeoutSec, onChange: (v) => { setTimeoutSec(v); updateSetting("timeout", parseInt(v)); }, placeholder: "30" },
