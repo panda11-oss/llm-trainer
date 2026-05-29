@@ -14,6 +14,7 @@ from src.collectors.wikipedia import get_wikipedia_articles
 from src.collectors.devto import get_devto_articles
 from src.collectors.archwiki import get_archwiki_articles
 from src.collectors.manpages import get_manpages
+from src.collectors.serper import search_serper
 from src.db import save_articles, get_stats, search, get_collection
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -458,6 +459,16 @@ def collect_keyword(body: dict):
             results[name] = {"count": len(data), "saved": saved}
         except Exception as e:
             errors[name] = str(e)
+
+    # Serper API（APIキーが設定されている場合のみ）
+    try:
+        serper_data = search_serper(keyword)
+        if serper_data:
+            saved = save_articles("serper", serper_data)
+            results["serper"] = {"count": len(serper_data), "saved": saved}
+    except Exception as e:
+        errors["serper"] = str(e)
+
     total = sum(v["count"] for v in results.values())
     return {"keyword": keyword, "total": total, "results": results, "errors": errors}
 

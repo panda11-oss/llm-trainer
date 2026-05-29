@@ -8,7 +8,8 @@ RUN pip install --no-cache-dir \
     requests \
     python-dotenv \
     apscheduler \
-    chromadb
+    chromadb \
+    beautifulsoup4
 
 COPY src ./src
 
