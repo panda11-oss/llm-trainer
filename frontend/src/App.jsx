@@ -420,6 +420,7 @@ export default function App() {
 
   // 設定
   const [autoShutdown, setAutoShutdown] = useState(false);
+  const [toast, setToast] = useState("");
   const [collectTime, setCollectTime] = useState("09:00");
   const [timezone, setTimezone] = useState("Asia/Tokyo");
   const [retryCount, setRetryCount] = useState("3");
@@ -556,6 +557,11 @@ export default function App() {
     setSearching(false);
   };
 
+  const showToast = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(""), 2000);
+  };
+
   const updateSetting = async (key, value) => {
     try {
       await fetch(`${API}/api/settings`, {
@@ -563,7 +569,10 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ [key]: value }),
       });
-    } catch (_) {}
+      showToast("✅ 設定を保存しました");
+    } catch (_) {
+      showToast("❌ 保存に失敗しました");
+    }
   };
 
   const toggleAutoShutdown = async () => {
