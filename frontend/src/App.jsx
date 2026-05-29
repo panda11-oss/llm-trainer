@@ -142,7 +142,7 @@ const DEFAULT_TAGSETS = [
     subcategories: [
       { id: "g1", name: "インフラ系",                   enabled: true, tags: ["linux", "docker", "bash", "ssh", "systemd"] },
       { id: "g2", name: "開発ツール",                   enabled: true, tags: ["python", "git", "vim", "rust"] },
-      { id: "g3", name: "コンテナ/オーケストレーション", enabled: true, tags: ["kubernetes", "docker", "terraform"] },
+      { id: "g3", name: "コンテナ/オーケストレーション", enabled: true, tags: ["kubernetes", "terraform"] },
     ],
   },
   {
@@ -424,7 +424,7 @@ export default function App() {
   const [collectTime, setCollectTime] = useState("09:00");
   const [timezone, setTimezone] = useState("Asia/Tokyo");
   const [retryCount, setRetryCount] = useState("3");
-  const [timeout, setTimeout] = useState("30");
+  const [timeoutSec, setTimeoutSec] = useState("30");
 
   // アクティブなタグセットの全タグ（enabledなカテゴリのみ）
   const activeTagset = tagsets.find(f => f.id === activeTagsetId);
@@ -484,7 +484,7 @@ export default function App() {
       setCollectTime(`${h}:${m}`);
       setTimezone(data.timezone || "Asia/Tokyo");
       setRetryCount(String(data.retry_count ?? 3));
-      setTimeout(String(data.timeout ?? 30));
+      setTimeoutSec(String(data.timeout ?? 30));
     } catch (_) {}
   };
 
@@ -848,7 +848,7 @@ export default function App() {
                   { label: "取得時刻", value: collectTime, onChange: (v) => { setCollectTime(v); const [h,m] = v.split(":"); updateSetting("collect_hour", parseInt(h)); updateSetting("collect_minute", parseInt(m)); }, placeholder: "09:00" },
                   { label: "タイムゾーン", value: timezone, onChange: (v) => { setTimezone(v); updateSetting("timezone", v); }, placeholder: "Asia/Tokyo" },
                   { label: "リトライ回数", value: retryCount, onChange: (v) => { setRetryCount(v); updateSetting("retry_count", parseInt(v)); }, placeholder: "3" },
-                  { label: "タイムアウト(秒)", value: timeout, onChange: (v) => { setTimeout(v); updateSetting("timeout", parseInt(v)); }, placeholder: "30" },
+                  { label: "タイムアウト(秒)", value: timeoutSec, onChange: (v) => { setTimeoutSec(v); updateSetting("timeout", parseInt(v)); }, placeholder: "30" },
                 ].map((item, i) => (
                   <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                     <span style={{ fontSize: 12, color: "#64748b" }}>{item.label}</span>
