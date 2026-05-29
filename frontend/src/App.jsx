@@ -175,7 +175,7 @@ const CustomTooltip = ({ active, payload, label }) => {
 };
 
 // ── TagsetManager コンポーネント ────────────────────────
-function TagsetManager({ tagsets, setTagsets, activeTagsetId, setActiveTagsetId }) {
+function TagsetManager({ tagsets, setTagsets, activeTagsetIds, setActiveTagsetIds }) {
   const [openFolders, setOpenFolders] = useState({ general: true, study: true });
   const [tagInputs, setTagInputs] = useState({});
 
@@ -184,8 +184,12 @@ function TagsetManager({ tagsets, setTagsets, activeTagsetId, setActiveTagsetId 
   const activateTagset = async (id) => {
     try {
       await fetch(`${API}/api/tagsets/${id}/activate`, { method: "PUT" });
-    } catch (_) { /* ローカルだけ更新 */ }
-    setActiveTagsetId(id);
+    } catch (_) {}
+    setActiveTagsetIds(prev =>
+      prev.includes(id)
+        ? prev.length > 1 ? prev.filter(i => i !== id) : prev
+        : [...prev, id]
+    );
   };
 
   const addTag = (subId) => {
@@ -245,7 +249,7 @@ function TagsetManager({ tagsets, setTagsets, activeTagsetId, setActiveTagsetId 
       </div>
 
       {tagsets.map(folder => {
-        const isActive = activeTagsetId === folder.id;
+        const isActive = activeTagsetIds.includes(folder.id);
         const isOpen = openFolders[folder.id];
         const hasMult = folder.subcategories.length >= 2;
         const onCount = folder.subcategories.filter(s => s.enabled).length;
@@ -276,7 +280,7 @@ function TagsetManager({ tagsets, setTagsets, activeTagsetId, setActiveTagsetId 
                   fontSize: 10, padding: "2px 8px", borderRadius: 20,
                   background: "rgba(168,85,247,0.15)", color: "#a855f7",
                   border: "1px solid rgba(168,85,247,0.3)",
-                }}>使用中</span>
+                }}>✅ 収集中</span>
               ) : (
                 <span style={{
                   fontSize: 10, padding: "2px 8px", borderRadius: 20,
@@ -370,10 +374,12 @@ function TagsetManager({ tagsets, setTagsets, activeTagsetId, setActiveTagsetId 
                 {/* 切り替えボタン */}
                 <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.04)" }}>
                   {isActive ? (
-                    <span style={{ fontSize: 11, color: "#475569" }}>現在使用中のセットです</span>
+                    <button style={{ ...S.btn("purple"), opacity: 0.6 }} onClick={() => activateTagset(folder.id)}>
+                      ✅ 収集中 → 解除する
+                    </button>
                   ) : (
                     <button style={S.btn("purple")} onClick={() => activateTagset(folder.id)}>
-                      このセットに切り替える ↗
+                      + 収集対象に追加
                     </button>
                   )}
                 </div>
@@ -416,7 +422,7 @@ export default function App() {
 
   // タグセット管理
   const [tagsets, setTagsets] = useState(DEFAULT_TAGSETS);
-  const [activeTagsetId, setActiveTagsetId] = useState("general");
+  const [activeTagsetIds, setActiveTagsetIds] = useState(["general"]);
 
   // 設定
   const [autoShutdown, setAutoShutdown] = useState(false);
@@ -427,8 +433,12 @@ export default function App() {
   const [timeoutSec, setTimeoutSec] = useState("30");
 
   // アクティブなタグセットの全タグ（enabledなカテゴリのみ）
-  const activeTagset = tagsets.find(f => f.id === activeTagsetId);
-  const activeTags = activeTagset?.subcategories.filter(s => s.enabled !== false).flatMap(s => s.tags) || autoTags;
+  const activeTags = [...new Set(
+    tagsets
+      .filter(f => activeTagsetIds.includes(f.id))
+      .flatMap(f => f.subcategories.filter(s => s.enabled !== false).flatMap(s => s.tags))
+  )] || autoTags;
+  const activeTagset = tagsets.find(f => activeTagsetIds.includes(f.id));
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
@@ -494,7 +504,7 @@ export default function App() {
       const data = await res.json();
       if (data.tagsets?.length) {
         setTagsets(data.tagsets);
-        setActiveTagsetId(data.active_id || "general");
+        setActiveTagsetIds(data.active_ids || ["general"]);
       }
     } catch (_) { /* APIが未実装の場合はデフォルト値を使用 */ }
   };
@@ -659,13 +669,15 @@ export default function App() {
                 <div>
                   <div style={{ fontSize: 10, color: "#475569", marginBottom: 6, letterSpacing: "0.1em", display: "flex", alignItems: "center", gap: 8 }}>
                     自動収集タグ (毎日09:00)
-                    <span style={{
-                      fontSize: 9, padding: "1px 8px", borderRadius: 20,
-                      background: "rgba(168,85,247,0.12)", color: "#a855f7",
-                      border: "1px solid rgba(168,85,247,0.25)",
-                    }}>
-                      {activeTagset?.name || "技術全般"}
-                    </span>
+                    {tagsets.filter(f => activeTagsetIds.includes(f.id)).map(f => (
+                      <span key={f.id} style={{
+                        fontSize: 9, padding: "1px 8px", borderRadius: 20,
+                        background: "rgba(168,85,247,0.12)", color: "#a855f7",
+                        border: "1px solid rgba(168,85,247,0.25)", marginRight: 4,
+                      }}>
+                        {f.name}
+                      </span>
+                    ))}
                     <button
                       onClick={() => setTab("settings")}
                       style={{ fontSize: 9, color: "#334155", background: "none", border: "none", cursor: "pointer", fontFamily: "'JetBrains Mono', monospace" }}
@@ -908,8 +920,8 @@ export default function App() {
                 <TagsetManager
                   tagsets={tagsets}
                   setTagsets={setTagsets}
-                  activeTagsetId={activeTagsetId}
-                  setActiveTagsetId={setActiveTagsetId}
+                  activeTagsetIds={activeTagsetIds}
+                  setActiveTagsetIds={setActiveTagsetIds}
                 />
               </div>
 

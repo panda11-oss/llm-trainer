@@ -98,7 +98,7 @@ def get_logs(limit: int = 200) -> list[dict]:
 
 # ── タグセット管理 ────────────────────────────────────────
 DEFAULT_TAGSETS = {
-    "active_id": "general",
+    "active_ids": ["general"],
     "tagsets": [
         {
             "id": "general",
@@ -136,13 +136,21 @@ def save_tagsets(data: dict):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 def get_active_tags() -> list[str]:
-    """アクティブなタグセットのONカテゴリのタグを返す"""
+    """アクティブなタグセット（複数可）のONカテゴリのタグを重複なしで返す"""
     data = load_tagsets()
-    active_id = data.get("active_id", "general")
-    tagset = next((t for t in data["tagsets"] if t["id"] == active_id), None)
-    if not tagset:
-        return COLLECT_TAGS
-    return [tag for sub in tagset["subcategories"] if sub.get("enabled", True) for tag in sub["tags"]]
+    active_ids = data.get("active_ids", data.get("active_id", ["general"]))
+    if isinstance(active_ids, str):
+        active_ids = [active_ids]
+    tags = []
+    for active_id in active_ids:
+        tagset = next((t for t in data["tagsets"] if t["id"] == active_id), None)
+        if tagset:
+            for sub in tagset["subcategories"]:
+                if sub.get("enabled", True):
+                    for tag in sub["tags"]:
+                        if tag not in tags:
+                            tags.append(tag)
+    return tags if tags else COLLECT_TAGS
 
 # ── タグベースの収集 ──────────────────────────────────────
 def collect_by_tags() -> dict:
@@ -394,7 +402,10 @@ def api_update_settings(body: dict):
 @app.get("/api/tagsets")
 def api_get_tagsets():
     data = load_tagsets()
-    return {"tagsets": data["tagsets"], "active_id": data["active_id"]}
+    active_ids = data.get("active_ids", [data.get("active_id", "general")])
+    if isinstance(active_ids, str):
+        active_ids = [active_ids]
+    return {"tagsets": data["tagsets"], "active_ids": active_ids}
 
 @app.post("/api/tagsets")
 def api_create_tagset(body: dict):
@@ -410,13 +421,22 @@ def api_create_tagset(body: dict):
     return {"status": "ok", "tagset": new_tagset}
 
 @app.put("/api/tagsets/{tagset_id}/activate")
-def api_activate_tagset(tagset_id: str):
+def api_activate_tagset(tagset_id: str, body: dict = {}):
     data = load_tagsets()
     if not any(t["id"] == tagset_id for t in data["tagsets"]):
         raise HTTPException(status_code=404, detail="tagset not found")
-    data["active_id"] = tagset_id
+    active_ids = data.get("active_ids", [])
+    if isinstance(active_ids, str):
+        active_ids = [active_ids]
+    if tagset_id in active_ids:
+        # 既にアクティブなら解除（最低1つは残す）
+        if len(active_ids) > 1:
+            active_ids.remove(tagset_id)
+    else:
+        active_ids.append(tagset_id)
+    data["active_ids"] = active_ids
     save_tagsets(data)
-    return {"status": "ok", "active_id": tagset_id, "tags": get_active_tags()}
+    return {"status": "ok", "active_ids": active_ids, "tags": get_active_tags()}
 
 @app.put("/api/tagsets/{tagset_id}")
 def api_update_tagset(tagset_id: str, body: dict):
