@@ -1,4 +1,5 @@
 import os
+import json
 import requests as req
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,20 +23,70 @@ from contextlib import asynccontextmanager
 load_dotenv()
 
 # ── 設定 ─────────────────────────────────────────────────
-OPENWEBUI_URL      = os.getenv("OPENWEBUI_URL",     "http://host.docker.internal:3000")
-OPENWEBUI_API_KEY  = os.getenv("OPENWEBUI_API_KEY", "")
-KNOWLEDGE_ID       = os.getenv("OPENWEBUI_KNOWLEDGE_ID", "")
-COLLECT_TAGS       = [t.strip() for t in os.getenv("COLLECT_TAGS", "python").split(",") if t.strip()]
+OPENWEBUI_URL    = os.getenv("OPENWEBUI_URL", "http://host.docker.internal:3000")
+OPENWEBUI_API_KEY = os.getenv("OPENWEBUI_API_KEY", "")
+KNOWLEDGE_ID     = os.getenv("OPENWEBUI_KNOWLEDGE_ID", "")
+COLLECT_TAGS     = [t.strip() for t in os.getenv("COLLECT_TAGS", "python").split(",") if t.strip()]
+
+TAGSETS_PATH = "/app/data/tagsets.json"
 
 scheduler = AsyncIOScheduler()
 
+# ── タグセット管理 ────────────────────────────────────────
+DEFAULT_TAGSETS = {
+    "active_id": "general",
+    "tagsets": [
+        {
+            "id": "general",
+            "name": "技術全般",
+            "icon": "🖥",
+            "subcategories": [
+                {"id": "g1", "name": "インフラ系",        "enabled": True,  "tags": ["linux", "docker", "bash", "ssh", "systemd"]},
+                {"id": "g2", "name": "開発ツール",        "enabled": True,  "tags": ["python", "git", "vim", "rust"]},
+                {"id": "g3", "name": "コンテナ/オーケストレーション", "enabled": True, "tags": ["kubernetes", "docker", "terraform"]},
+            ],
+        },
+        {
+            "id": "study",
+            "name": "資格勉強",
+            "icon": "📚",
+            "subcategories": [
+                {"id": "s1", "name": "サーバー系",     "enabled": True,  "tags": ["linuc", "lpic", "ccna", "rhcsa", "shell-script", "networking"]},
+                {"id": "s2", "name": "コーディング系", "enabled": False, "tags": ["algorithm", "atcoder", "paiza", "competitive-programming"]},
+                {"id": "s3", "name": "クラウド系",     "enabled": False, "tags": ["aws", "gcp", "azure", "terraform"]},
+            ],
+        },
+    ],
+}
+
+def load_tagsets() -> dict:
+    try:
+        with open(TAGSETS_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return DEFAULT_TAGSETS
+
+def save_tagsets(data: dict):
+    os.makedirs(os.path.dirname(TAGSETS_PATH), exist_ok=True)
+    with open(TAGSETS_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def get_active_tags() -> list[str]:
+    """アクティブなタグセットのONカテゴリのタグを返す"""
+    data = load_tagsets()
+    active_id = data.get("active_id", "general")
+    tagset = next((t for t in data["tagsets"] if t["id"] == active_id), None)
+    if not tagset:
+        return COLLECT_TAGS
+    return [tag for sub in tagset["subcategories"] if sub.get("enabled", True) for tag in sub["tags"]]
+
 # ── タグベースの収集 ──────────────────────────────────────
 def collect_by_tags() -> dict:
-    """COLLECT_TAGSのキーワードで全ソースからデータを収集する"""
+    tags = get_active_tags()
     results = {}
-    errors  = {}
+    errors = {}
 
-    for tag in COLLECT_TAGS:
+    for tag in tags:
         for name, collector in [
             ("github",        lambda t=tag: get_trending_repos(language=t)),
             ("qiita",         lambda t=tag: get_qiita_articles(tag=t)),
@@ -45,7 +96,7 @@ def collect_by_tags() -> dict:
             ("wikipedia",     lambda t=tag: get_wikipedia_articles(topic=t)),
         ]:
             try:
-                data  = collector()
+                data = collector()
                 saved = save_articles(name, data)
                 if name not in results:
                     results[name] = {"count": 0, "saved": 0}
@@ -54,14 +105,13 @@ def collect_by_tags() -> dict:
             except Exception as e:
                 errors[f"{name}_{tag}"] = str(e)
 
-    # タグに依存しないソース
     for name, collector in [
         ("hackernews", get_hackernews_stories),
         ("archwiki",   get_archwiki_articles),
         ("manpages",   get_manpages),
     ]:
         try:
-            data  = collector()
+            data = collector()
             saved = save_articles(name, data)
             results[name] = {"count": len(data), "saved": saved}
         except Exception as e:
@@ -71,19 +121,16 @@ def collect_by_tags() -> dict:
 
 # ── Open WebUI 更新 ───────────────────────────────────────
 def do_export_all() -> str:
-    sources = [
-        "github", "qiita", "zenn", "stackoverflow",
-        "hackernews", "wikipedia", "devto", "archwiki", "manpages"
-    ]
+    sources = ["github","qiita","zenn","stackoverflow","hackernews","wikipedia","devto","archwiki","manpages"]
     lines = []
     for source in sources:
         try:
-            col     = get_collection(source)
-            results = col.get(include=["documents", "metadatas"])
+            col = get_collection(source)
+            results = col.get(include=["documents","metadatas"])
             for doc, meta in zip(results["documents"], results["metadatas"]):
-                lines.append(f"# {meta.get('title', '')}")
+                lines.append(f"# {meta.get('title','')}")
                 lines.append(f"Source: {source}")
-                lines.append(f"URL: {meta.get('url', '')}")
+                lines.append(f"URL: {meta.get('url','')}")
                 lines.append(doc)
                 lines.append("---")
         except Exception:
@@ -129,7 +176,8 @@ def update_openwebui_knowledge(file_path: str) -> bool:
 
 # ── スケジューラー ────────────────────────────────────────
 async def scheduled_collect():
-    print(f"[{datetime.now()}] スケジュール収集開始 タグ: {COLLECT_TAGS}")
+    tags = get_active_tags()
+    print(f"[{datetime.now()}] スケジュール収集開始 タグ: {tags}")
     collect_by_tags()
     try:
         path = do_export_all()
@@ -147,12 +195,12 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
     )
     scheduler.start()
-    print(f"✅ スケジューラー起動完了 収集タグ: {COLLECT_TAGS}", flush=True)
+    tags = get_active_tags()
+    print(f"✅ スケジューラー起動完了 収集タグ: {tags}", flush=True)
     yield
     scheduler.shutdown()
 
 app = FastAPI(lifespan=lifespan)
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -162,25 +210,25 @@ app.add_middleware(
 )
 
 # ════════════════════════════════════════════════════════════
-#  基本
+# 基本
 # ════════════════════════════════════════════════════════════
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "tags": COLLECT_TAGS}
+    return {"status": "ok", "tags": get_active_tags()}
 
 @app.get("/api/sources")
 def get_sources():
     return {"sources": [
-        {"id": 1,  "name": "GitHub API",    "enabled": True},
-        {"id": 2,  "name": "Qiita API",     "enabled": True},
-        {"id": 3,  "name": "Zenn RSS",      "enabled": True},
-        {"id": 4,  "name": "Stack Overflow","enabled": True},
-        {"id": 5,  "name": "HackerNews",    "enabled": True},
-        {"id": 6,  "name": "Wikipedia API", "enabled": True},
-        {"id": 7,  "name": "Dev.to API",    "enabled": True},
-        {"id": 8,  "name": "Arch Wiki",     "enabled": True},
-        {"id": 9,  "name": "Man Pages",     "enabled": True},
+        {"id": 1, "name": "GitHub API",      "enabled": True},
+        {"id": 2, "name": "Qiita API",       "enabled": True},
+        {"id": 3, "name": "Zenn RSS",        "enabled": True},
+        {"id": 4, "name": "Stack Overflow",  "enabled": True},
+        {"id": 5, "name": "HackerNews",      "enabled": True},
+        {"id": 6, "name": "Wikipedia API",   "enabled": True},
+        {"id": 7, "name": "Dev.to API",      "enabled": True},
+        {"id": 8, "name": "Arch Wiki",       "enabled": True},
+        {"id": 9, "name": "Man Pages",       "enabled": True},
     ]}
 
 @app.get("/api/stats")
@@ -201,19 +249,67 @@ def search_articles(q: str, source: str = None, n: int = 10):
 
 @app.get("/api/tags")
 def get_tags():
-    """現在の収集タグ一覧を返す"""
-    return {"tags": COLLECT_TAGS}
+    return {"tags": get_active_tags()}
 
 # ════════════════════════════════════════════════════════════
-#  個別収集 (単一タグ)
+# タグセット管理
+# ════════════════════════════════════════════════════════════
+
+@app.get("/api/tagsets")
+def api_get_tagsets():
+    data = load_tagsets()
+    return {"tagsets": data["tagsets"], "active_id": data["active_id"]}
+
+@app.post("/api/tagsets")
+def api_create_tagset(body: dict):
+    data = load_tagsets()
+    new_tagset = {
+        "id": body.get("id", f"f{int(datetime.now().timestamp())}"),
+        "name": body.get("name", "新しいタグセット"),
+        "icon": body.get("icon", "📁"),
+        "subcategories": body.get("subcategories", []),
+    }
+    data["tagsets"].append(new_tagset)
+    save_tagsets(data)
+    return {"status": "ok", "tagset": new_tagset}
+
+@app.put("/api/tagsets/{tagset_id}/activate")
+def api_activate_tagset(tagset_id: str):
+    data = load_tagsets()
+    if not any(t["id"] == tagset_id for t in data["tagsets"]):
+        raise HTTPException(status_code=404, detail="tagset not found")
+    data["active_id"] = tagset_id
+    save_tagsets(data)
+    return {"status": "ok", "active_id": tagset_id, "tags": get_active_tags()}
+
+@app.put("/api/tagsets/{tagset_id}")
+def api_update_tagset(tagset_id: str, body: dict):
+    data = load_tagsets()
+    for i, t in enumerate(data["tagsets"]):
+        if t["id"] == tagset_id:
+            data["tagsets"][i] = {**t, **body, "id": tagset_id}
+            save_tagsets(data)
+            return {"status": "ok", "tagset": data["tagsets"][i]}
+    raise HTTPException(status_code=404, detail="tagset not found")
+
+@app.delete("/api/tagsets/{tagset_id}")
+def api_delete_tagset(tagset_id: str):
+    data = load_tagsets()
+    data["tagsets"] = [t for t in data["tagsets"] if t["id"] != tagset_id]
+    if data["active_id"] == tagset_id:
+        data["active_id"] = data["tagsets"][0]["id"] if data["tagsets"] else "general"
+    save_tagsets(data)
+    return {"status": "ok"}
+
+# ════════════════════════════════════════════════════════════
+# 個別収集
 # ════════════════════════════════════════════════════════════
 
 @app.get("/api/collect/github")
 def collect_github(language: str = "python", save: bool = True):
     try:
         data = get_trending_repos(language=language)
-        if save:
-            save_articles("github", data)
+        if save: save_articles("github", data)
         return {"status": "success", "count": len(data)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -222,8 +318,7 @@ def collect_github(language: str = "python", save: bool = True):
 def collect_qiita(tag: str = "python", save: bool = True):
     try:
         data = get_qiita_articles(tag=tag)
-        if save:
-            save_articles("qiita", data)
+        if save: save_articles("qiita", data)
         return {"status": "success", "count": len(data)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -232,8 +327,7 @@ def collect_qiita(tag: str = "python", save: bool = True):
 def collect_zenn(topic: str = "python", save: bool = True):
     try:
         data = get_zenn_articles(topic=topic)
-        if save:
-            save_articles("zenn", data)
+        if save: save_articles("zenn", data)
         return {"status": "success", "count": len(data)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -242,8 +336,7 @@ def collect_zenn(topic: str = "python", save: bool = True):
 def collect_stackoverflow(tag: str = "python", save: bool = True):
     try:
         data = get_stackoverflow_questions(tag=tag)
-        if save:
-            save_articles("stackoverflow", data)
+        if save: save_articles("stackoverflow", data)
         return {"status": "success", "count": len(data)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -252,8 +345,7 @@ def collect_stackoverflow(tag: str = "python", save: bool = True):
 def collect_hackernews(save: bool = True):
     try:
         data = get_hackernews_stories()
-        if save:
-            save_articles("hackernews", data)
+        if save: save_articles("hackernews", data)
         return {"status": "success", "count": len(data)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -262,8 +354,7 @@ def collect_hackernews(save: bool = True):
 def collect_wikipedia(topic: str = "Python", save: bool = True):
     try:
         data = get_wikipedia_articles(topic=topic)
-        if save:
-            save_articles("wikipedia", data)
+        if save: save_articles("wikipedia", data)
         return {"status": "success", "count": len(data)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -272,8 +363,7 @@ def collect_wikipedia(topic: str = "Python", save: bool = True):
 def collect_devto(tag: str = "python", save: bool = True):
     try:
         data = get_devto_articles(tag=tag)
-        if save:
-            save_articles("devto", data)
+        if save: save_articles("devto", data)
         return {"status": "success", "count": len(data)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -282,8 +372,7 @@ def collect_devto(tag: str = "python", save: bool = True):
 def collect_archwiki(save: bool = True):
     try:
         data = get_archwiki_articles()
-        if save:
-            save_articles("archwiki", data)
+        if save: save_articles("archwiki", data)
         return {"status": "success", "count": len(data)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -292,19 +381,17 @@ def collect_archwiki(save: bool = True):
 def collect_manpages(save: bool = True):
     try:
         data = get_manpages()
-        if save:
-            save_articles("manpages", data)
+        if save: save_articles("manpages", data)
         return {"status": "success", "count": len(data)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/collect/all")
 def collect_all():
-    """COLLECT_TAGSのキーワードで全ソースからデータを収集する"""
     return collect_by_tags()
 
 # ════════════════════════════════════════════════════════════
-#  エクスポート
+# エクスポート
 # ════════════════════════════════════════════════════════════
 
 @app.get("/api/export/all")
@@ -318,12 +405,12 @@ def export_all():
 @app.get("/api/export/{source}")
 def export_source(source: str):
     try:
-        col     = get_collection(source)
-        results = col.get(include=["documents", "metadatas"])
-        lines   = []
+        col = get_collection(source)
+        results = col.get(include=["documents","metadatas"])
+        lines = []
         for doc, meta in zip(results["documents"], results["metadatas"]):
-            lines.append(f"# {meta.get('title', '')}")
-            lines.append(f"URL: {meta.get('url', '')}")
+            lines.append(f"# {meta.get('title','')}")
+            lines.append(f"URL: {meta.get('url','')}")
             lines.append(doc)
             lines.append("---")
         path = f"/app/data/export_{source}.txt"
@@ -334,37 +421,29 @@ def export_source(source: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ════════════════════════════════════════════════════════════
-#  Open WebUI
+# Open WebUI
 # ════════════════════════════════════════════════════════════
 
 @app.post("/api/openwebui/update")
 def openwebui_update():
-    """手動でOpen WebUIのナレッジベースを更新する"""
     try:
-        path    = do_export_all()
+        path = do_export_all()
         success = update_openwebui_knowledge(path)
         return {"status": "ok" if success else "skipped", "file": path}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 # ════════════════════════════════════════════════════════════
-#  キーワード都度収集
+# キーワード都度収集
 # ════════════════════════════════════════════════════════════
 
 @app.post("/api/collect/keyword")
 def collect_keyword(body: dict):
-    """
-    指定キーワードで全ソースからデータを収集する
-    body: {"keyword": "rust"}
-    """
     keyword = body.get("keyword", "").strip()
     if not keyword:
         raise HTTPException(status_code=400, detail="keyword is required")
-
     results = {}
-    errors  = {}
-
-    # タグ対応ソース
+    errors = {}
     for name, collector in [
         ("github",        lambda: get_trending_repos(language=keyword)),
         ("qiita",         lambda: get_qiita_articles(tag=keyword)),
@@ -374,11 +453,24 @@ def collect_keyword(body: dict):
         ("wikipedia",     lambda: get_wikipedia_articles(topic=keyword)),
     ]:
         try:
-            data  = collector()
+            data = collector()
             saved = save_articles(name, data)
             results[name] = {"count": len(data), "saved": saved}
         except Exception as e:
             errors[name] = str(e)
-
     total = sum(v["count"] for v in results.values())
     return {"keyword": keyword, "total": total, "results": results, "errors": errors}
+
+# ════════════════════════════════════════════════════════════
+# 履歴・トレンド
+# ════════════════════════════════════════════════════════════
+
+@app.get("/api/history/trend")
+def get_trend():
+    """日別収集件数（スタブ: 実装は db.py 側で対応）"""
+    return {"trend": []}
+
+@app.get("/api/history/keywords")
+def get_keyword_history():
+    """キーワード収集履歴（スタブ: 実装は db.py 側で対応）"""
+    return {"keywords": []}

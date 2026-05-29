@@ -114,8 +114,8 @@ const S = {
     padding: "7px 16px", borderRadius: 6, cursor: "pointer", fontSize: 11,
     fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.05em",
     background: variant === "primary" ? "rgba(0,255,170,0.12)"
-              : variant === "purple"  ? "rgba(168,85,247,0.12)"
-              : "rgba(255,255,255,0.04)",
+      : variant === "purple" ? "rgba(168,85,247,0.12)"
+      : "rgba(255,255,255,0.04)",
     border: `1px solid ${variant === "primary" ? "rgba(0,255,170,0.3)" : variant === "purple" ? "rgba(168,85,247,0.3)" : "rgba(255,255,255,0.08)"}`,
     color: variant === "primary" ? "#00ffaa" : variant === "purple" ? "#a855f7" : "#64748b",
     transition: "all 0.2s",
@@ -132,6 +132,30 @@ const S = {
     border: "1px solid rgba(0,255,170,0.2)", cursor: "default",
   },
 };
+
+// ── タグセット デフォルト値 ──────────────────────────────
+const DEFAULT_TAGSETS = [
+  {
+    id: "general",
+    name: "技術全般",
+    icon: "🖥",
+    subcategories: [
+      { id: "g1", name: "インフラ系",                   enabled: true, tags: ["linux", "docker", "bash", "ssh", "systemd"] },
+      { id: "g2", name: "開発ツール",                   enabled: true, tags: ["python", "git", "vim", "rust"] },
+      { id: "g3", name: "コンテナ/オーケストレーション", enabled: true, tags: ["kubernetes", "docker", "terraform"] },
+    ],
+  },
+  {
+    id: "study",
+    name: "資格勉強",
+    icon: "📚",
+    subcategories: [
+      { id: "s1", name: "サーバー系",     enabled: true,  tags: ["linuc", "lpic", "ccna", "rhcsa", "shell-script", "networking"] },
+      { id: "s2", name: "コーディング系", enabled: false, tags: ["algorithm", "atcoder", "paiza", "competitive-programming"] },
+      { id: "s3", name: "クラウド系",     enabled: false, tags: ["aws", "gcp", "azure", "terraform"] },
+    ],
+  },
+];
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
@@ -150,6 +174,232 @@ const CustomTooltip = ({ active, payload, label }) => {
   );
 };
 
+// ── TagsetManager コンポーネント ────────────────────────
+function TagsetManager({ tagsets, setTagsets, activeTagsetId, setActiveTagsetId }) {
+  const [openFolders, setOpenFolders] = useState({ general: true, study: true });
+  const [tagInputs, setTagInputs] = useState({});
+
+  const toggleFolder = (id) => setOpenFolders(prev => ({ ...prev, [id]: !prev[id] }));
+
+  const activateTagset = async (id) => {
+    try {
+      await fetch(`${API}/api/tagsets/${id}/activate`, { method: "PUT" });
+    } catch (_) { /* ローカルだけ更新 */ }
+    setActiveTagsetId(id);
+  };
+
+  const addTag = (subId) => {
+    const val = (tagInputs[subId] || "").trim().toLowerCase();
+    if (!val) return;
+    setTagsets(prev => prev.map(f => ({
+      ...f,
+      subcategories: f.subcategories.map(s =>
+        s.id === subId && !s.tags.includes(val)
+          ? { ...s, tags: [...s.tags, val] }
+          : s
+      ),
+    })));
+    setTagInputs(prev => ({ ...prev, [subId]: "" }));
+  };
+
+  const removeTag = (subId, tag) => {
+    setTagsets(prev => prev.map(f => ({
+      ...f,
+      subcategories: f.subcategories.map(s =>
+        s.id === subId ? { ...s, tags: s.tags.filter(t => t !== tag) } : s
+      ),
+    })));
+  };
+
+  const addFolder = () => {
+    const name = window.prompt("タグセット名を入力してください");
+    if (!name) return;
+    const id = "f" + Date.now();
+    setTagsets(prev => [...prev, { id, name, icon: "📁", subcategories: [] }]);
+    setOpenFolders(prev => ({ ...prev, [id]: true }));
+  };
+
+  const toggleSubcategory = (subId) => {
+    setTagsets(prev => prev.map(f => ({
+      ...f,
+      subcategories: f.subcategories.map(s =>
+        s.id === subId ? { ...s, enabled: !s.enabled } : s
+      ),
+    })));
+  };
+
+  const addSubcategory = (folderId) => {
+    const name = window.prompt("カテゴリ名を入力してください");
+    if (!name) return;
+    setTagsets(prev => prev.map(f =>
+      f.id === folderId
+        ? { ...f, subcategories: [...f.subcategories, { id: "sub_" + Date.now(), name, enabled: true, tags: [] }] }
+        : f
+    ));
+  };
+
+  return (
+    <div>
+      <div style={{ fontSize: 10, color: "#475569", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 10 }}>
+        自動収集 タグセット
+      </div>
+
+      {tagsets.map(folder => {
+        const isActive = activeTagsetId === folder.id;
+        const isOpen = openFolders[folder.id];
+        const hasMult = folder.subcategories.length >= 2;
+        const onCount = folder.subcategories.filter(s => s.enabled).length;
+        const total = folder.subcategories.length;
+
+        return (
+          <div key={folder.id} style={{
+            background: "rgba(255,255,255,0.02)",
+            border: `1px solid ${isActive ? "rgba(168,85,247,0.3)" : "rgba(0,255,170,0.08)"}`,
+            borderLeft: isActive ? "3px solid #a855f7" : "1px solid rgba(0,255,170,0.08)",
+            borderRadius: 10, marginBottom: 8, overflow: "hidden",
+          }}>
+            {/* フォルダヘッダー */}
+            <div
+              onClick={() => toggleFolder(folder.id)}
+              style={{
+                display: "flex", alignItems: "center", gap: 10,
+                padding: "12px 16px", cursor: "pointer",
+                background: isActive ? "rgba(168,85,247,0.05)" : "transparent",
+              }}
+            >
+              <span style={{ fontSize: 16 }}>{folder.icon}</span>
+              <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: isActive ? "#c084fc" : "#e2e8f0" }}>
+                {folder.name}
+              </span>
+              {isActive ? (
+                <span style={{
+                  fontSize: 10, padding: "2px 8px", borderRadius: 20,
+                  background: "rgba(168,85,247,0.15)", color: "#a855f7",
+                  border: "1px solid rgba(168,85,247,0.3)",
+                }}>使用中</span>
+              ) : (
+                <span style={{
+                  fontSize: 10, padding: "2px 8px", borderRadius: 20,
+                  background: "rgba(255,255,255,0.03)", color: "#475569",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                }}>
+                  {total === 0 ? "カテゴリなし" : hasMult ? `${onCount}/${total} ON` : `${folder.subcategories[0]?.tags.length || 0}タグ`}
+                </span>
+              )}
+              <span style={{ fontSize: 10, color: "#334155", transition: "transform 0.2s", transform: isOpen ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
+            </div>
+
+            {/* フォルダボディ */}
+            {isOpen && (
+              <div style={{ borderTop: "1px solid rgba(255,255,255,0.04)", padding: "14px 16px" }}>
+                {/* カテゴリ0個のとき */}
+                {folder.subcategories.length === 0 && (
+                  <div style={{ fontSize: 12, color: "#334155", textAlign: "center", padding: "12px 0" }}>
+                    カテゴリを追加してください
+                  </div>
+                )}
+
+                {folder.subcategories.map((sub, idx) => (
+                  <div key={sub.id}>
+                    {idx > 0 && <div style={{ borderTop: "1px solid rgba(255,255,255,0.04)", margin: "12px 0" }} />}
+                    <div style={{ marginBottom: 10, opacity: sub.enabled ? 1 : 0.45, transition: "opacity 0.2s" }}>
+                      <div style={{ fontSize: 11, color: "#64748b", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ flex: 1 }}>{sub.name}</span>
+                        {/* カテゴリが2個以上のときだけトグル表示 */}
+                        {hasMult && (
+                          <button
+                            onClick={() => toggleSubcategory(sub.id)}
+                            style={{
+                              fontSize: 10, padding: "2px 10px", borderRadius: 20, cursor: "pointer",
+                              fontFamily: "'JetBrains Mono', monospace",
+                              background: sub.enabled ? "rgba(0,255,170,0.1)" : "rgba(255,255,255,0.03)",
+                              border: `1px solid ${sub.enabled ? "rgba(0,255,170,0.25)" : "rgba(255,255,255,0.08)"}`,
+                              color: sub.enabled ? "#00ffaa" : "#334155",
+                              transition: "all 0.2s",
+                            }}
+                          >
+                            {sub.enabled ? "ON" : "OFF"}
+                          </button>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                        {sub.tags.map(tag => (
+                          <span key={tag} style={{
+                            display: "inline-flex", alignItems: "center", gap: 5,
+                            padding: "3px 8px 3px 10px", borderRadius: 20, fontSize: 11,
+                            background: "rgba(0,255,170,0.06)", color: "#00ffaa",
+                            border: "1px solid rgba(0,255,170,0.15)",
+                          }}>
+                            {tag}
+                            <span
+                              onClick={() => removeTag(sub.id, tag)}
+                              style={{ fontSize: 13, color: "#334155", cursor: "pointer", lineHeight: 1 }}
+                            >×</span>
+                          </span>
+                        ))}
+                      </div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <input
+                          style={{ ...S.input, flex: 1, fontSize: 11, padding: "4px 10px" }}
+                          placeholder="タグを追加..."
+                          value={tagInputs[sub.id] || ""}
+                          onChange={e => setTagInputs(prev => ({ ...prev, [sub.id]: e.target.value }))}
+                          onKeyDown={e => e.key === "Enter" && addTag(sub.id)}
+                        />
+                        <button style={{ ...S.btn("primary"), padding: "4px 12px", fontSize: 11 }} onClick={() => addTag(sub.id)}>+ 追加</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {/* カテゴリ追加ボタン（常に表示） */}
+                <button
+                  onClick={() => addSubcategory(folder.id)}
+                  style={{
+                    width: "100%", padding: "8px", marginTop: folder.subcategories.length > 0 ? 8 : 0,
+                    borderRadius: 8, cursor: "pointer", fontSize: 11,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    background: "transparent",
+                    border: "1px dashed rgba(0,255,170,0.15)",
+                    color: "#334155", display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  }}
+                >
+                  + カテゴリを追加
+                </button>
+
+                {/* 切り替えボタン */}
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                  {isActive ? (
+                    <span style={{ fontSize: 11, color: "#475569" }}>現在使用中のセットです</span>
+                  ) : (
+                    <button style={S.btn("purple")} onClick={() => activateTagset(folder.id)}>
+                      このセットに切り替える ↗
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* 新規追加 */}
+      <button
+        onClick={addFolder}
+        style={{
+          width: "100%", padding: "10px", borderRadius: 10, cursor: "pointer",
+          background: "transparent", border: "1px dashed rgba(0,255,170,0.15)",
+          color: "#334155", fontSize: 12, fontFamily: "'JetBrains Mono', monospace",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+        }}
+      >
+        + 新しいタグセットを追加
+      </button>
+    </div>
+  );
+}
+
+// ── メインApp ───────────────────────────────────────────
 export default function App() {
   const [tab, setTab] = useState("dashboard");
   const [time, setTime] = useState(new Date());
@@ -160,17 +410,25 @@ export default function App() {
   const [searchResults, setSearchResults] = useState([]);
   const [collecting, setCollecting] = useState(false);
   const [searching, setSearching] = useState(false);
-
-  // キーワード収集
   const [keyword, setKeyword] = useState("");
   const [keywordCollecting, setKeywordCollecting] = useState(false);
   const [autoTags, setAutoTags] = useState([]);
+
+  // タグセット管理
+  const [tagsets, setTagsets] = useState(DEFAULT_TAGSETS);
+  const [activeTagsetId, setActiveTagsetId] = useState("general");
+
+  // アクティブなタグセットの全タグ（enabledなカテゴリのみ）
+  const activeTagset = tagsets.find(f => f.id === activeTagsetId);
+  const activeTags = activeTagset?.subcategories.filter(s => s.enabled !== false).flatMap(s => s.tags) || autoTags;
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
     fetchStats();
     fetchSources();
     fetchTags();
+    // タグセットAPIから取得を試みる
+    fetchTagsets();
     return () => clearInterval(t);
   }, []);
 
@@ -179,9 +437,7 @@ export default function App() {
       const res = await fetch(`${API}/api/stats`);
       const data = await res.json();
       setStats(data.stats || {});
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
   };
 
   const fetchSources = async () => {
@@ -189,9 +445,7 @@ export default function App() {
       const res = await fetch(`${API}/api/sources`);
       const data = await res.json();
       setSources(data.sources || []);
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
   };
 
   const fetchTags = async () => {
@@ -199,9 +453,18 @@ export default function App() {
       const res = await fetch(`${API}/api/tags`);
       const data = await res.json();
       setAutoTags(data.tags || []);
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
+  };
+
+  const fetchTagsets = async () => {
+    try {
+      const res = await fetch(`${API}/api/tagsets`);
+      const data = await res.json();
+      if (data.tagsets?.length) {
+        setTagsets(data.tagsets);
+        setActiveTagsetId(data.active_id || "general");
+      }
+    } catch (_) { /* APIが未実装の場合はデフォルト値を使用 */ }
   };
 
   const collectAll = async () => {
@@ -210,38 +473,23 @@ export default function App() {
     try {
       const res = await fetch(`${API}/api/collect/all`, { method: "POST" });
       const data = await res.json();
-
       const newLogs = Object.entries(data.results || {}).map(([source, result]) => ({
         id: Date.now() + Math.random(),
-        time: startTime,
-        source,
-        status: "success",
+        time: startTime, source, status: "success",
         message: `${result.count}件取得 (${result.saved}件保存)`,
       }));
-
       const errorLogs = Object.entries(data.errors || {}).map(([source, error]) => ({
         id: Date.now() + Math.random(),
-        time: startTime,
-        source,
-        status: "error",
-        message: error,
+        time: startTime, source, status: "error", message: error,
       }));
-
       setLogs(prev => [...newLogs, ...errorLogs, ...prev].slice(0, 100));
       await fetchStats();
     } catch (e) {
-      setLogs(prev => [{
-        id: Date.now(),
-        time: startTime,
-        source: "system",
-        status: "error",
-        message: e.message,
-      }, ...prev]);
+      setLogs(prev => [{ id: Date.now(), time: startTime, source: "system", status: "error", message: e.message }, ...prev]);
     }
     setCollecting(false);
   };
 
-  // キーワード都度収集
   const collectKeyword = async () => {
     const kw = keyword.trim();
     if (!kw) return;
@@ -255,22 +503,13 @@ export default function App() {
       });
       const data = await res.json();
       setLogs(prev => [{
-        id: Date.now(),
-        time: startTime,
-        source: `🔍 ${kw}`,
-        status: "success",
+        id: Date.now(), time: startTime, source: `🔍 ${kw}`, status: "success",
         message: `合計 ${data.total}件を取得しました`,
       }, ...prev].slice(0, 100));
       setKeyword("");
       await fetchStats();
     } catch (e) {
-      setLogs(prev => [{
-        id: Date.now(),
-        time: startTime,
-        source: `🔍 ${kw}`,
-        status: "error",
-        message: e.message,
-      }, ...prev]);
+      setLogs(prev => [{ id: Date.now(), time: startTime, source: `🔍 ${kw}`, status: "error", message: e.message }, ...prev]);
     }
     setKeywordCollecting(false);
   };
@@ -282,9 +521,7 @@ export default function App() {
       const res = await fetch(`${API}/api/search?q=${encodeURIComponent(searchQuery)}&n=20`);
       const data = await res.json();
       setSearchResults(data.results || []);
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
     setSearching(false);
   };
 
@@ -354,13 +591,28 @@ export default function App() {
                   {keywordCollecting ? "収集中..." : "▶ 今すぐ収集"}
                 </button>
               </div>
-              {autoTags.length > 0 && (
+
+              {/* アクティブなタグセット表示 */}
+              {activeTags.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 10, color: "#475569", marginBottom: 6, letterSpacing: "0.1em" }}>
+                  <div style={{ fontSize: 10, color: "#475569", marginBottom: 6, letterSpacing: "0.1em", display: "flex", alignItems: "center", gap: 8 }}>
                     自動収集タグ (毎日09:00)
+                    <span style={{
+                      fontSize: 9, padding: "1px 8px", borderRadius: 20,
+                      background: "rgba(168,85,247,0.12)", color: "#a855f7",
+                      border: "1px solid rgba(168,85,247,0.25)",
+                    }}>
+                      {activeTagset?.name || "技術全般"}
+                    </span>
+                    <button
+                      onClick={() => setTab("settings")}
+                      style={{ fontSize: 9, color: "#334155", background: "none", border: "none", cursor: "pointer", fontFamily: "'JetBrains Mono', monospace" }}
+                    >
+                      変更 →
+                    </button>
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {autoTags.map(tag => (
+                    {activeTags.map(tag => (
                       <span key={tag} style={S.tag}>{tag}</span>
                     ))}
                   </div>
@@ -413,8 +665,6 @@ export default function App() {
                 {collecting ? "収集中..." : "▶ 全ソース収集"}
               </button>
             </div>
-
-            {/* キーワード収集 */}
             <div style={{ ...S.card, marginBottom: 16 }}>
               <div style={S.cardTitle}><span>▸ キーワード都度収集</span></div>
               <div style={{ fontSize: 11, color: "#475569", marginBottom: 10 }}>
@@ -433,7 +683,6 @@ export default function App() {
                 </button>
               </div>
             </div>
-
             {sources.map(src => (
               <div key={src.id} style={S.sourceRow(src.enabled)}>
                 <div style={{ flex: 1 }}>
@@ -449,20 +698,6 @@ export default function App() {
                 </div>
               </div>
             ))}
-
-            {autoTags.length > 0 && (
-              <div style={{ ...S.card, marginTop: 16 }}>
-                <div style={S.cardTitle}><span>▸ 自動収集タグ (毎日09:00)</span></div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {autoTags.map(tag => (
-                    <span key={tag} style={S.tag}>{tag}</span>
-                  ))}
-                </div>
-                <div style={{ fontSize: 10, color: "#334155", marginTop: 10 }}>
-                  タグの変更は .env の COLLECT_TAGS を編集してコンテナを再起動してください。
-                </div>
-              </div>
-            )}
           </>
         )}
 
@@ -541,6 +776,7 @@ export default function App() {
           <>
             <div style={{ fontSize: 11, color: "#00ffaa", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 16 }}>▸ 設定</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+
               <div style={S.card}>
                 <div style={{ fontSize: 12, color: "#00ffaa", marginBottom: 16 }}>スケジュール設定</div>
                 {[
@@ -555,6 +791,7 @@ export default function App() {
                   </div>
                 ))}
               </div>
+
               <div style={S.card}>
                 <div style={{ fontSize: 12, color: "#00ffaa", marginBottom: 16 }}>DB設定</div>
                 {[
@@ -569,17 +806,18 @@ export default function App() {
                   </div>
                 ))}
               </div>
-              <div style={S.card}>
-                <div style={{ fontSize: 12, color: "#00ffaa", marginBottom: 16 }}>自動収集タグ</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-                  {autoTags.map(tag => (
-                    <span key={tag} style={S.tag}>{tag}</span>
-                  ))}
-                </div>
-                <div style={{ fontSize: 10, color: "#334155" }}>
-                  変更: .env の COLLECT_TAGS を編集 → docker compose restart api
-                </div>
+
+              {/* タグセット管理 - 2カラムにまたがる */}
+              <div style={{ gridColumn: "1 / -1", ...S.card }}>
+                <div style={{ fontSize: 12, color: "#00ffaa", marginBottom: 16 }}>タグセット管理</div>
+                <TagsetManager
+                  tagsets={tagsets}
+                  setTagsets={setTagsets}
+                  activeTagsetId={activeTagsetId}
+                  setActiveTagsetId={setActiveTagsetId}
+                />
               </div>
+
             </div>
           </>
         )}
