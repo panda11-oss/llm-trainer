@@ -418,6 +418,9 @@ export default function App() {
   const [tagsets, setTagsets] = useState(DEFAULT_TAGSETS);
   const [activeTagsetId, setActiveTagsetId] = useState("general");
 
+  // 設定
+  const [autoShutdown, setAutoShutdown] = useState(false);
+
   // アクティブなタグセットの全タグ（enabledなカテゴリのみ）
   const activeTagset = tagsets.find(f => f.id === activeTagsetId);
   const activeTags = activeTagset?.subcategories.filter(s => s.enabled !== false).flatMap(s => s.tags) || autoTags;
@@ -429,6 +432,7 @@ export default function App() {
     fetchTags();
     // タグセットAPIから取得を試みる
     fetchTagsets();
+    fetchSettings();
     return () => clearInterval(t);
   }, []);
 
@@ -454,6 +458,14 @@ export default function App() {
       const data = await res.json();
       setAutoTags(data.tags || []);
     } catch (e) { console.error(e); }
+  };
+
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch(`${API}/api/settings`);
+      const data = await res.json();
+      setAutoShutdown(data.auto_shutdown || false);
+    } catch (_) {}
   };
 
   const fetchTagsets = async () => {
@@ -523,6 +535,18 @@ export default function App() {
       setSearchResults(data.results || []);
     } catch (e) { console.error(e); }
     setSearching(false);
+  };
+
+  const toggleAutoShutdown = async () => {
+    const newVal = !autoShutdown;
+    setAutoShutdown(newVal);
+    try {
+      await fetch(`${API}/api/settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auto_shutdown: newVal }),
+      });
+    } catch (_) {}
   };
 
   const totalDocs = Object.values(stats).reduce((s, v) => s + v, 0);
@@ -805,6 +829,30 @@ export default function App() {
                     <span style={{ fontSize: 12, color: "#e2e8f0" }}>{item.value}</span>
                   </div>
                 ))}
+              </div>
+
+              {/* 収集後自動シャットダウン */}
+              <div style={{ gridColumn: "1 / -1", ...S.card }}>
+                <div style={{ fontSize: 12, color: "#00ffaa", marginBottom: 16 }}>収集後自動シャットダウン</div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div>
+                    <div style={{ fontSize: 13, color: "#e2e8f0", marginBottom: 4 }}>定期収集完了後にPCをシャットダウン</div>
+                    <div style={{ fontSize: 11, color: "#475569" }}>帰省中など離席時にONにすると収集完了後に自動でPCがOFFになります</div>
+                  </div>
+                  <button
+                    onClick={toggleAutoShutdown}
+                    style={{
+                      padding: "6px 20px", borderRadius: 20, cursor: "pointer",
+                      fontFamily: "'JetBrains Mono', monospace", fontSize: 12,
+                      background: autoShutdown ? "rgba(255,68,68,0.12)" : "rgba(255,255,255,0.04)",
+                      border: `1px solid ${autoShutdown ? "rgba(255,68,68,0.3)" : "rgba(255,255,255,0.08)"}`,
+                      color: autoShutdown ? "#ff6666" : "#475569",
+                      transition: "all 0.2s", flexShrink: 0, marginLeft: 16,
+                    }}
+                  >
+                    {autoShutdown ? "ON (収集後シャットダウン)" : "OFF"}
+                  </button>
+                </div>
               </div>
 
               {/* タグセット管理 - 2カラムにまたがる */}

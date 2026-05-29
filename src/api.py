@@ -30,8 +30,28 @@ KNOWLEDGE_ID     = os.getenv("OPENWEBUI_KNOWLEDGE_ID", "")
 COLLECT_TAGS     = [t.strip() for t in os.getenv("COLLECT_TAGS", "python").split(",") if t.strip()]
 
 TAGSETS_PATH = "/app/data/tagsets.json"
+SHUTDOWN_FLAG_PATH = "/app/data/shutdown.flag"
 
 scheduler = AsyncIOScheduler()
+
+
+# ── 設定管理 ─────────────────────────────────────────────
+SETTINGS_PATH = "/app/data/settings.json"
+DEFAULT_SETTINGS = {
+    "auto_shutdown": False,
+}
+
+def load_settings() -> dict:
+    try:
+        with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+            return {**DEFAULT_SETTINGS, **json.load(f)}
+    except Exception:
+        return DEFAULT_SETTINGS
+
+def save_settings(data: dict):
+    os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)
+    with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 # ── タグセット管理 ────────────────────────────────────────
 DEFAULT_TAGSETS = {
@@ -187,6 +207,16 @@ async def scheduled_collect():
         print(f"[Export] エラー: {e}")
     print(f"[{datetime.now()}] スケジュール収集完了")
 
+    # シャットダウンフラグが有効なら実行フラグを作成
+    try:
+        settings = load_settings()
+        if settings.get("auto_shutdown", False):
+            with open(SHUTDOWN_FLAG_PATH, "w") as f:
+                f.write("shutdown")
+            print(f"[Shutdown] シャットダウンフラグを作成しました")
+    except Exception as e:
+        print(f"[Shutdown] エラー: {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler.add_job(
@@ -251,6 +281,22 @@ def search_articles(q: str, source: str = None, n: int = 10):
 @app.get("/api/tags")
 def get_tags():
     return {"tags": get_active_tags()}
+
+
+# ════════════════════════════════════════════════════════════
+# 設定管理
+# ════════════════════════════════════════════════════════════
+
+@app.get("/api/settings")
+def api_get_settings():
+    return load_settings()
+
+@app.put("/api/settings")
+def api_update_settings(body: dict):
+    settings = load_settings()
+    settings.update(body)
+    save_settings(settings)
+    return settings
 
 # ════════════════════════════════════════════════════════════
 # タグセット管理
