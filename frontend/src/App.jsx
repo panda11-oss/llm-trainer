@@ -918,6 +918,17 @@ export default function App() {
         )}
 
       </main>
+
+      {toast && (
+        <div style={{
+          position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
+          background: "rgba(7,9,15,0.95)", border: "1px solid rgba(0,255,170,0.2)",
+          borderRadius: 8, padding: "8px 20px", fontSize: 13, color: "#e2e8f0",
+          boxShadow: "0 2px 12px rgba(0,0,0,0.3)", zIndex: 9999, whiteSpace: "nowrap",
+        }}>
+          {toast}
+        </div>
+      )}
     </div>
   );
 }
