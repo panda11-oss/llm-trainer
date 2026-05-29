@@ -40,6 +40,11 @@ scheduler = AsyncIOScheduler()
 SETTINGS_PATH = "/app/data/settings.json"
 DEFAULT_SETTINGS = {
     "auto_shutdown": False,
+    "collect_hour": 9,
+    "collect_minute": 0,
+    "timezone": "Asia/Tokyo",
+    "retry_count": 3,
+    "timeout": 30,
 }
 
 def load_settings() -> dict:
@@ -261,18 +266,34 @@ async def scheduled_collect():
     except Exception as e:
         print(f"[Shutdown] エラー: {e}")
 
+def update_scheduler():
+    """設定からスケジューラーを更新する"""
+    settings = load_settings()
+    hour = settings.get("collect_hour", 9)
+    minute = settings.get("collect_minute", 0)
+    tz = settings.get("timezone", "Asia/Tokyo")
+    scheduler.reschedule_job(
+        "daily_collect",
+        trigger=CronTrigger(hour=hour, minute=minute, timezone=tz),
+    )
+    print(f"[Scheduler] 収集時刻を {hour:02d}:{minute:02d} ({tz}) に更新しました")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings = load_settings()
+    hour = settings.get("collect_hour", 9)
+    minute = settings.get("collect_minute", 0)
+    tz = settings.get("timezone", "Asia/Tokyo")
     scheduler.add_job(
         scheduled_collect,
-        CronTrigger(hour=9, minute=0),
+        CronTrigger(hour=hour, minute=minute, timezone=tz),
         id="daily_collect",
         replace_existing=True,
     )
     init_log_db()
     scheduler.start()
     tags = get_active_tags()
-    print(f"✅ スケジューラー起動完了 収集タグ: {tags}", flush=True)
+    print(f"✅ スケジューラー起動完了 収集時刻: {hour:02d}:{minute:02d} タグ: {tags}", flush=True)
     yield
     scheduler.shutdown()
 
@@ -358,6 +379,12 @@ def api_update_settings(body: dict):
     settings = load_settings()
     settings.update(body)
     save_settings(settings)
+    # 時刻・タイムゾーン変更時はスケジューラーを即時更新
+    if any(k in body for k in ["collect_hour", "collect_minute", "timezone"]):
+        try:
+            update_scheduler()
+        except Exception as e:
+            print(f"[Scheduler] 更新エラー: {e}")
     return settings
 
 # ════════════════════════════════════════════════════════════

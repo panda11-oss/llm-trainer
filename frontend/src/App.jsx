@@ -420,6 +420,10 @@ export default function App() {
 
   // 設定
   const [autoShutdown, setAutoShutdown] = useState(false);
+  const [collectTime, setCollectTime] = useState("09:00");
+  const [timezone, setTimezone] = useState("Asia/Tokyo");
+  const [retryCount, setRetryCount] = useState("3");
+  const [timeout, setTimeout] = useState("30");
 
   // アクティブなタグセットの全タグ（enabledなカテゴリのみ）
   const activeTagset = tagsets.find(f => f.id === activeTagsetId);
@@ -474,6 +478,12 @@ export default function App() {
       const res = await fetch(`${API}/api/settings`);
       const data = await res.json();
       setAutoShutdown(data.auto_shutdown || false);
+      const h = String(data.collect_hour ?? 9).padStart(2, "0");
+      const m = String(data.collect_minute ?? 0).padStart(2, "0");
+      setCollectTime(`${h}:${m}`);
+      setTimezone(data.timezone || "Asia/Tokyo");
+      setRetryCount(String(data.retry_count ?? 3));
+      setTimeout(String(data.timeout ?? 30));
     } catch (_) {}
   };
 
@@ -544,6 +554,16 @@ export default function App() {
       setSearchResults(data.results || []);
     } catch (e) { console.error(e); }
     setSearching(false);
+  };
+
+  const updateSetting = async (key, value) => {
+    try {
+      await fetch(`${API}/api/settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [key]: value }),
+      });
+    } catch (_) {}
   };
 
   const toggleAutoShutdown = async () => {
@@ -816,14 +836,20 @@ export default function App() {
               <div style={S.card}>
                 <div style={{ fontSize: 12, color: "#00ffaa", marginBottom: 16 }}>スケジュール設定</div>
                 {[
-                  { label: "取得時刻", value: "09:00" },
-                  { label: "タイムゾーン", value: "Asia/Tokyo" },
-                  { label: "リトライ回数", value: "3" },
-                  { label: "タイムアウト", value: "30秒" },
+                  { label: "取得時刻", value: collectTime, onChange: (v) => { setCollectTime(v); const [h,m] = v.split(":"); updateSetting("collect_hour", parseInt(h)); updateSetting("collect_minute", parseInt(m)); }, placeholder: "09:00" },
+                  { label: "タイムゾーン", value: timezone, onChange: (v) => { setTimezone(v); updateSetting("timezone", v); }, placeholder: "Asia/Tokyo" },
+                  { label: "リトライ回数", value: retryCount, onChange: (v) => { setRetryCount(v); updateSetting("retry_count", parseInt(v)); }, placeholder: "3" },
+                  { label: "タイムアウト(秒)", value: timeout, onChange: (v) => { setTimeout(v); updateSetting("timeout", parseInt(v)); }, placeholder: "30" },
                 ].map((item, i) => (
                   <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                     <span style={{ fontSize: 12, color: "#64748b" }}>{item.label}</span>
-                    <input defaultValue={item.value} style={{ ...S.input, width: 120, textAlign: "right" }} />
+                    <input
+                      value={item.value}
+                      onChange={e => item.onChange(e.target.value)}
+                      onBlur={e => item.onChange(e.target.value)}
+                      placeholder={item.placeholder}
+                      style={{ ...S.input, width: 120, textAlign: "right" }}
+                    />
                   </div>
                 ))}
               </div>
@@ -832,7 +858,7 @@ export default function App() {
                 <div style={{ fontSize: 12, color: "#00ffaa", marginBottom: 16 }}>DB設定</div>
                 {[
                   { label: "DBタイプ", value: "ChromaDB" },
-                  { label: "保存先", value: "/app/data" },
+                  { label: "保存先", value: "D:\\develop\\data" },
                   { label: "総件数", value: totalDocs.toLocaleString() },
                   { label: "コレクション数", value: Object.keys(stats).length },
                 ].map((item, i) => (
