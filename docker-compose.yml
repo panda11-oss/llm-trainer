@@ -21,6 +21,8 @@ services:
       - D:/develop/data:/app/data
     ports:
       - "8001:8001"
+    environment:
+      - TZ=Asia/Tokyo
     depends_on:
       - chromadb
 
