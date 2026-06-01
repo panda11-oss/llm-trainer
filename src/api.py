@@ -29,6 +29,7 @@ OPENWEBUI_URL    = os.getenv("OPENWEBUI_URL", "http://host.docker.internal:3000"
 OPENWEBUI_API_KEY = os.getenv("OPENWEBUI_API_KEY", "")
 KNOWLEDGE_ID     = os.getenv("OPENWEBUI_KNOWLEDGE_ID", "")
 COLLECT_TAGS     = [t.strip() for t in os.getenv("COLLECT_TAGS", "python").split(",") if t.strip()]
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 
 TAGSETS_PATH = "/app/data/tagsets.json"
 SHUTDOWN_FLAG_PATH = "/app/data/shutdown.flag"
@@ -82,7 +83,7 @@ def save_log(source: str, status: str, message: str):
     conn = sqlite3.connect(LOG_DB_PATH)
     conn.execute(
         "INSERT INTO logs (time, source, status, message) VALUES (?, ?, ?, ?)",
-        (datetime.now().strftime("%H:%M:%S"), source, status, message)
+        (datetime.now().strftime("%Y/%m/%d %H:%M:%S"), source, status, message)
     )
     conn.commit()
     conn.close()
@@ -151,6 +152,20 @@ def get_active_tags() -> list[str]:
                         if tag not in tags:
                             tags.append(tag)
     return tags if tags else COLLECT_TAGS
+
+
+# ── Discord通知 ───────────────────────────────────────────
+def notify_discord(title: str, message: str, color: int = 0x00ffaa):
+    if not DISCORD_WEBHOOK_URL:
+        return
+    try:
+        requests.post(
+            DISCORD_WEBHOOK_URL,
+            json={"embeds": [{"title": title, "description": message, "color": color}]},
+            timeout=10,
+        )
+    except Exception as e:
+        print(f"[Discord] 通知エラー: {e}")
 
 # ── タグベースの収集 ──────────────────────────────────────
 def collect_by_tags() -> dict:
@@ -264,6 +279,16 @@ async def scheduled_collect():
         print(f"[Export] エラー: {e}")
     print(f"[{datetime.now()}] スケジュール収集完了")
 
+    # Discord通知
+    total = sum(r.get("count", 0) for r in results.get("results", {}).values()) if isinstance(results, dict) else 0
+    errors = results.get("errors", {}) if isinstance(results, dict) else {}
+    if errors:
+        msg = f"取得件数: {total}件\nエラー: {', '.join(errors.keys())}"
+        notify_discord("⚠️ llm-trainer 定期収集完了（エラーあり）", msg, color=0xff4444)
+    else:
+        msg = f"取得件数: {total}件"
+        notify_discord("✅ llm-trainer 定期収集完了", msg, color=0x00ffaa)
+
     # シャットダウンフラグが有効なら実行フラグを作成
     try:
         settings = load_settings()
@@ -302,6 +327,7 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     tags = get_active_tags()
     print(f"✅ スケジューラー起動完了 収集時刻: {hour:02d}:{minute:02d} タグ: {tags}", flush=True)
+    notify_discord("🖥️ llm-trainer 起動しました", f"起動時刻: {datetime.now().strftime('%H:%M')}\n定期収集: {hour:02d}:{minute:02d}\nタグ数: {len(tags)}個", color=0x00aaff)
     yield
     scheduler.shutdown()
 
