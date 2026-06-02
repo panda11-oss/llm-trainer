@@ -415,6 +415,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [collecting, setCollecting] = useState(false);
+  const [collectProgress, setCollectProgress] = useState({ current: 0, total: 9, source: "" });
   const [searching, setSearching] = useState(false);
   const [keyword, setKeyword] = useState("");
   const [keywordCollecting, setKeywordCollecting] = useState(false);
@@ -511,9 +512,22 @@ export default function App() {
 
   const collectAll = async () => {
     setCollecting(true);
+    setCollectProgress({ current: 0, total: 9, source: "準備中..." });
     const startTime = new Date().toLocaleTimeString("ja-JP");
     try {
+      // プログレスをポーリングで更新
+      const sources = ["github","qiita","zenn","stackoverflow","devto","wikipedia","hackernews","archwiki","manpages"];
+      let progressCount = 0;
+      const progressTimer = setInterval(() => {
+        if (progressCount < sources.length) {
+          setCollectProgress({ current: progressCount, total: sources.length, source: sources[progressCount] });
+          progressCount++;
+        }
+      }, 2000);
+
       const res = await fetch(`${API}/api/collect/all`, { method: "POST" });
+      clearInterval(progressTimer);
+      setCollectProgress({ current: 9, total: 9, source: "完了" });
       const data = await res.json();
       const newLogs = Object.entries(data.results || {}).map(([source, result]) => ({
         id: Date.now() + Math.random(),
@@ -526,6 +540,7 @@ export default function App() {
       }));
       setLogs(prev => [...newLogs, ...errorLogs, ...prev].slice(0, 100));
       await fetchStats();
+      await fetchLogs();
     } catch (e) {
       setLogs(prev => [{ id: Date.now(), time: startTime, source: "system", status: "error", message: e.message }, ...prev]);
     }
@@ -714,6 +729,23 @@ export default function App() {
               </div>
             </div>
 
+            {collecting && (
+              <div style={{ ...S.card, marginBottom: 16 }}>
+                <div style={{ fontSize: 11, color: "#00ffaa", marginBottom: 10 }}>▸ 収集中... {collectProgress.source}</div>
+                <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 4, overflow: "hidden", height: 6 }}>
+                  <div style={{
+                    height: "100%", borderRadius: 4,
+                    background: "linear-gradient(90deg, #00ffaa, #00aaff)",
+                    width: `${(collectProgress.current / collectProgress.total) * 100}%`,
+                    transition: "width 0.5s ease",
+                  }} />
+                </div>
+                <div style={{ fontSize: 10, color: "#334155", marginTop: 6, textAlign: "right" }}>
+                  {collectProgress.current} / {collectProgress.total} ソース完了
+                </div>
+              </div>
+            )}
+
             {logs.length > 0 && (
               <div style={S.card}>
                 <div style={S.cardTitle}><span>▸ 最新ログ</span></div>
@@ -858,7 +890,6 @@ export default function App() {
                 <div style={{ fontSize: 12, color: "#00ffaa", marginBottom: 16 }}>スケジュール設定</div>
                 {[
                   { label: "取得時刻", value: collectTime, onChange: (v) => { setCollectTime(v); const [h,m] = v.split(":"); const hour = parseInt(h); const min = parseInt(m); if (!isNaN(hour) && !isNaN(min) && hour >= 0 && hour <= 23 && min >= 0 && min <= 59) { updateSetting("collect_hour", hour); updateSetting("collect_minute", min); } }, placeholder: "09:00" },
-                  { label: "タイムゾーン", value: timezone, onChange: (v) => { setTimezone(v); updateSetting("timezone", v); }, placeholder: "Asia/Tokyo" },
                   { label: "リトライ回数", value: retryCount, onChange: (v) => { setRetryCount(v); updateSetting("retry_count", parseInt(v)); }, placeholder: "3" },
                   { label: "タイムアウト(秒)", value: timeoutSec, onChange: (v) => { setTimeoutSec(v); updateSetting("timeout", parseInt(v)); }, placeholder: "30" },
                 ].map((item, i) => (
@@ -873,6 +904,23 @@ export default function App() {
                     />
                   </div>
                 ))}
+                {/* タイムゾーン選択 */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <span style={{ fontSize: 12, color: "#64748b" }}>タイムゾーン</span>
+                  <select
+                    value={timezone}
+                    onChange={e => { setTimezone(e.target.value); updateSetting("timezone", e.target.value); }}
+                    style={{ ...S.input, width: 180, textAlign: "right" }}
+                  >
+                    <option value="Asia/Tokyo">Asia/Tokyo (JST)</option>
+                    <option value="Asia/Seoul">Asia/Seoul (KST)</option>
+                    <option value="Asia/Shanghai">Asia/Shanghai (CST)</option>
+                    <option value="America/New_York">America/New_York (EST)</option>
+                    <option value="America/Los_Angeles">America/Los_Angeles (PST)</option>
+                    <option value="Europe/London">Europe/London (GMT)</option>
+                    <option value="UTC">UTC</option>
+                  </select>
+                </div>
               </div>
 
               <div style={S.card}>
