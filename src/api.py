@@ -159,7 +159,7 @@ def notify_discord(title: str, message: str, color: int = 0x00ffaa):
     if not DISCORD_WEBHOOK_URL:
         return
     try:
-        requests.post(
+        req.post(
             DISCORD_WEBHOOK_URL,
             json={"embeds": [{"title": title, "description": message, "color": color}]},
             timeout=10,
