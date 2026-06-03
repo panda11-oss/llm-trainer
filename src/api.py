@@ -271,7 +271,8 @@ def update_openwebui_knowledge(file_path: str) -> bool:
 async def scheduled_collect():
     tags = get_active_tags()
     print(f"[{datetime.now()}] スケジュール収集開始 タグ: {tags}")
-    collect_by_tags()
+    notify_discord("🔄 llm-trainer 収集開始", f"開始時刻: {datetime.now().strftime('%H:%M')}\nタグ数: {len(tags)}個", color=0xffaa00)
+    results = collect_by_tags()
     try:
         path = do_export_all()
         update_openwebui_knowledge(path)
@@ -282,11 +283,12 @@ async def scheduled_collect():
     # Discord通知
     total = sum(r.get("count", 0) for r in results.get("results", {}).values()) if isinstance(results, dict) else 0
     errors = results.get("errors", {}) if isinstance(results, dict) else {}
+    end_time = datetime.now().strftime('%H:%M')
     if errors:
-        msg = f"取得件数: {total}件\nエラー: {', '.join(errors.keys())}"
+        msg = f"完了時刻: {end_time}\n取得件数: {total}件\nエラー: {', '.join(errors.keys())}"
         notify_discord("⚠️ llm-trainer 定期収集完了（エラーあり）", msg, color=0xff4444)
     else:
-        msg = f"取得件数: {total}件"
+        msg = f"完了時刻: {end_time}\n取得件数: {total}件"
         notify_discord("✅ llm-trainer 定期収集完了", msg, color=0x00ffaa)
 
     # シャットダウンフラグが有効なら実行フラグを作成
