@@ -386,6 +386,31 @@ def get_tags():
 
 
 
+
+@app.post("/api/shutdown")
+def api_shutdown():
+    """即時シャットダウンフラグを作成する"""
+    try:
+        with open(SHUTDOWN_FLAG_PATH, "w") as f:
+            f.write("shutdown")
+        notify_discord("🔴 llm-trainer リモートシャットダウン", f"シャットダウン要求: {datetime.now().strftime('%H:%M')}\n60秒後にシャットダウンします", color=0xff4444)
+        return {"status": "ok", "message": "60秒後にシャットダウンします"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/shutdown")
+def api_cancel_shutdown():
+    """シャットダウンフラグを削除してキャンセルする"""
+    try:
+        import os as _os
+        if _os.path.exists(SHUTDOWN_FLAG_PATH):
+            _os.remove(SHUTDOWN_FLAG_PATH)
+            notify_discord("🟢 llm-trainer シャットダウンキャンセル", f"キャンセル時刻: {datetime.now().strftime('%H:%M')}", color=0x00ffaa)
+            return {"status": "ok", "message": "シャットダウンをキャンセルしました"}
+        return {"status": "ok", "message": "フラグがありません"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ════════════════════════════════════════════════════════════
 # ログ
 # ════════════════════════════════════════════════════════════

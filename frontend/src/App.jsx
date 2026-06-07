@@ -416,6 +416,7 @@ export default function App() {
   const [searchResults, setSearchResults] = useState([]);
   const [collecting, setCollecting] = useState(false);
   const [collectProgress, setCollectProgress] = useState({ current: 0, total: 9, source: "" });
+  const [shutdownPending, setShutdownPending] = useState(false);
   const [searching, setSearching] = useState(false);
   const [keyword, setKeyword] = useState("");
   const [keywordCollecting, setKeywordCollecting] = useState(false);
@@ -600,6 +601,27 @@ export default function App() {
     }
   };
 
+  const requestShutdown = async () => {
+    if (!window.confirm("60秒後にPCをシャットダウンします。よろしいですか？")) return;
+    try {
+      await fetch(`${API}/api/shutdown`, { method: "POST" });
+      setShutdownPending(true);
+      showToast("⚠️ 60秒後にシャットダウンします");
+    } catch (_) {
+      showToast("❌ シャットダウン要求に失敗しました");
+    }
+  };
+
+  const cancelShutdown = async () => {
+    try {
+      await fetch(`${API}/api/shutdown`, { method: "DELETE" });
+      setShutdownPending(false);
+      showToast("✅ シャットダウンをキャンセルしました");
+    } catch (_) {
+      showToast("❌ キャンセルに失敗しました");
+    }
+  };
+
   const toggleAutoShutdown = async () => {
     const newVal = !autoShutdown;
     setAutoShutdown(newVal);
@@ -636,9 +658,20 @@ export default function App() {
             <button key={key} style={S.navBtn(tab === key)} onClick={() => setTab(key)}>{label}</button>
           ))}
         </nav>
-        <div style={S.status}>
-          <div style={S.dot("#00ffaa")} />
-          <span>{time.toLocaleTimeString("ja-JP")}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {shutdownPending ? (
+            <button style={{ ...S.btn("default"), fontSize: 11, color: "#ff6666", borderColor: "rgba(255,68,68,0.3)" }} onClick={cancelShutdown}>
+              ⏱ シャットダウンキャンセル
+            </button>
+          ) : (
+            <button style={{ ...S.btn("default"), fontSize: 11 }} onClick={requestShutdown}>
+              🔴 リモートシャットダウン
+            </button>
+          )}
+          <div style={S.status}>
+            <div style={S.dot("#00ffaa")} />
+            <span>{time.toLocaleTimeString("ja-JP")}</span>
+          </div>
         </div>
       </header>
 
