@@ -181,6 +181,18 @@ function TagsetManager({ tagsets, setTagsets, activeTagsetIds, setActiveTagsetId
 
   const toggleFolder = (id) => setOpenFolders(prev => ({ ...prev, [id]: !prev[id] }));
 
+  const saveTagset = async (updatedTagsets, folderId) => {
+    const folder = updatedTagsets.find(f => f.id === folderId);
+    if (!folder) return;
+    try {
+      await fetch(`${API}/api/tagsets/${folderId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(folder),
+      });
+    } catch (_) {}
+  };
+
   const activateTagset = async (id) => {
     try {
       await fetch(`${API}/api/tagsets/${id}/activate`, { method: "PUT" });
@@ -195,24 +207,34 @@ function TagsetManager({ tagsets, setTagsets, activeTagsetIds, setActiveTagsetId
   const addTag = (subId) => {
     const val = (tagInputs[subId] || "").trim().toLowerCase();
     if (!val) return;
-    setTagsets(prev => prev.map(f => ({
-      ...f,
-      subcategories: f.subcategories.map(s =>
-        s.id === subId && !s.tags.includes(val)
-          ? { ...s, tags: [...s.tags, val] }
-          : s
-      ),
-    })));
+    setTagsets(prev => {
+      const updated = prev.map(f => ({
+        ...f,
+        subcategories: f.subcategories.map(s =>
+          s.id === subId && !s.tags.includes(val)
+            ? { ...s, tags: [...s.tags, val] }
+            : s
+        ),
+      }));
+      const folder = prev.find(f => f.subcategories.some(s => s.id === subId));
+      if (folder) saveTagset(updated, folder.id);
+      return updated;
+    });
     setTagInputs(prev => ({ ...prev, [subId]: "" }));
   };
 
   const removeTag = (subId, tag) => {
-    setTagsets(prev => prev.map(f => ({
-      ...f,
-      subcategories: f.subcategories.map(s =>
-        s.id === subId ? { ...s, tags: s.tags.filter(t => t !== tag) } : s
-      ),
-    })));
+    setTagsets(prev => {
+      const updated = prev.map(f => ({
+        ...f,
+        subcategories: f.subcategories.map(s =>
+          s.id === subId ? { ...s, tags: s.tags.filter(t => t !== tag) } : s
+        ),
+      }));
+      const folder = prev.find(f => f.subcategories.some(s => s.id === subId));
+      if (folder) saveTagset(updated, folder.id);
+      return updated;
+    });
   };
 
   const addFolder = () => {
@@ -224,22 +246,31 @@ function TagsetManager({ tagsets, setTagsets, activeTagsetIds, setActiveTagsetId
   };
 
   const toggleSubcategory = (subId) => {
-    setTagsets(prev => prev.map(f => ({
-      ...f,
-      subcategories: f.subcategories.map(s =>
-        s.id === subId ? { ...s, enabled: !s.enabled } : s
-      ),
-    })));
+    setTagsets(prev => {
+      const updated = prev.map(f => ({
+        ...f,
+        subcategories: f.subcategories.map(s =>
+          s.id === subId ? { ...s, enabled: !s.enabled } : s
+        ),
+      }));
+      const folder = prev.find(f => f.subcategories.some(s => s.id === subId));
+      if (folder) saveTagset(updated, folder.id);
+      return updated;
+    });
   };
 
   const addSubcategory = (folderId) => {
     const name = window.prompt("カテゴリ名を入力してください");
     if (!name) return;
-    setTagsets(prev => prev.map(f =>
-      f.id === folderId
-        ? { ...f, subcategories: [...f.subcategories, { id: "sub_" + Date.now(), name, enabled: true, tags: [] }] }
-        : f
-    ));
+    setTagsets(prev => {
+      const updated = prev.map(f =>
+        f.id === folderId
+          ? { ...f, subcategories: [...f.subcategories, { id: "sub_" + Date.now(), name, enabled: true, tags: [] }] }
+          : f
+      );
+      saveTagset(updated, folderId);
+      return updated;
+    });
   };
 
   return (
