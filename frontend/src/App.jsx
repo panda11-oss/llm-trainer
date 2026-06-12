@@ -20,17 +20,17 @@ const S = {
   },
   header: {
     position: "sticky", top: 0, zIndex: 100,
-    background: "rgba(7,9,15,0.9)",
+    background: "rgba(7,9,15,0.95)",
     backdropFilter: "blur(20px)",
     borderBottom: "1px solid rgba(0,255,170,0.15)",
-    padding: "0 32px",
+    padding: "10px 16px",
     display: "flex", alignItems: "center", justifyContent: "space-between",
-    height: 60,
+    gap: 8, flexWrap: "wrap", rowGap: 8,
   },
   logo: {
-    fontSize: 15, fontWeight: 700, letterSpacing: "0.15em",
+    fontSize: 13, fontWeight: 700, letterSpacing: "0.1em",
     color: "#00ffaa",
-    display: "flex", alignItems: "center", gap: 10,
+    display: "flex", alignItems: "center", gap: 8, flexShrink: 0,
   },
   logoIcon: {
     width: 28, height: 28, borderRadius: 6,
@@ -38,9 +38,9 @@ const S = {
     display: "flex", alignItems: "center", justifyContent: "center",
     fontSize: 14,
   },
-  nav: { display: "flex", gap: 2 },
+  nav: { display: "flex", gap: 2, overflowX: "auto", maxWidth: "100%", WebkitOverflowScrolling: "touch" },
   navBtn: (active) => ({
-    padding: "6px 16px", borderRadius: 6, border: "none",
+    padding: "6px 10px", borderRadius: 6, border: "none", whiteSpace: "nowrap", flexShrink: 0,
     background: active ? "rgba(0,255,170,0.12)" : "transparent",
     color: active ? "#00ffaa" : "#475569",
     fontSize: 12, fontWeight: 500, cursor: "pointer",
@@ -57,9 +57,9 @@ const S = {
   }),
   main: {
     position: "relative", zIndex: 1,
-    padding: "24px 32px", maxWidth: 1400, margin: "0 auto",
+    padding: "16px", maxWidth: 1400, margin: "0 auto",
   },
-  grid4: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 },
+  grid4: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 20 },
   kpi: (accent) => ({
     background: "rgba(255,255,255,0.02)",
     border: `1px solid rgba(${accent},0.2)`,
@@ -691,12 +691,12 @@ export default function App() {
         </nav>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {shutdownPending ? (
-            <button style={{ ...S.btn("default"), fontSize: 11, color: "#ff6666", borderColor: "rgba(255,68,68,0.3)" }} onClick={cancelShutdown}>
-              ⏱ シャットダウンキャンセル
+            <button style={{ ...S.btn("default"), fontSize: 11, color: "#ff6666", borderColor: "rgba(255,68,68,0.3)", whiteSpace: "nowrap" }} onClick={cancelShutdown}>
+              ⏱ キャンセル
             </button>
           ) : (
-            <button style={{ ...S.btn("default"), fontSize: 11 }} onClick={requestShutdown}>
-              🔴 リモートシャットダウン
+            <button style={{ ...S.btn("default"), fontSize: 11, whiteSpace: "nowrap" }} onClick={requestShutdown}>
+              🔴 シャットダウン
             </button>
           )}
           <div style={S.status}>
@@ -948,7 +948,7 @@ export default function App() {
         {tab === "settings" && (
           <>
             <div style={{ fontSize: 11, color: "#00ffaa", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 16 }}>▸ 設定</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12 }}>
 
               <div style={S.card}>
                 <div style={{ fontSize: 12, color: "#00ffaa", marginBottom: 16 }}>スケジュール設定</div>
