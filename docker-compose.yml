@@ -1,0 +1,36 @@
+services:
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: llm_chromadb
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./chromadb_data:/chroma/chroma
+    environment:
+      - ANONYMIZED_TELEMETRY=false
+  api:
+    build: .
+    working_dir: /app
+    env_file:
+      - .env
+    volumes:
+      - ./src:/app/src
+      - ./.env:/app/.env
+      - ./app_data:/app/data
+    ports:
+      - "8001:8001"
+    environment:
+      - TZ=Asia/Tokyo
+    depends_on:
+      - chromadb
+  frontend:
+    image: node:24-slim
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    command: ["sh", "-c", "npm install --no-bin-links && npm run dev"]
+    stdin_open: true
+    tty: true
+    ports:
+      - "5174:5174"
