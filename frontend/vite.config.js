@@ -4,9 +4,6 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
-    watch: {
-      usePolling: true,
-    },
     host: true,
     allowedHosts: ['homelab-main.tail043c04.ts.net'],
   },
