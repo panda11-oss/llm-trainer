@@ -4,7 +4,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from "recharts";
 
-const API = "http://localhost:8001";
+const API = `http://${window.location.hostname}:8001`;
 
 const S = {
   app: {
@@ -991,7 +991,6 @@ export default function App() {
                 <div style={{ fontSize: 12, color: "#00ffaa", marginBottom: 16 }}>DB設定</div>
                 {[
                   { label: "DBタイプ", value: "ChromaDB" },
-                  { label: "保存先", value: "D:\\develop\\data" },
                   { label: "総件数", value: totalDocs.toLocaleString() },
                   { label: "コレクション数", value: Object.keys(stats).length },
                 ].map((item, i) => (
