@@ -8,5 +8,6 @@ export default defineConfig({
       usePolling: true,
     },
     host: true,
+    allowedHosts: ['homelab-main.tail043c04.ts.net'],
   },
 })
